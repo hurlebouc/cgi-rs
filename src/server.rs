@@ -40,13 +40,10 @@ impl Script {
 
         if let Some(encoding) = req.headers().get(TRANSFER_ENCODING) {
             if encoding == "chunked" {
-                let response = Response::builder()
-                    .status(StatusCode::BAD_REQUEST)
-                    .body(Full::new(Bytes::from(
-                        "Chunked encoding is not supported by CGI.",
-                    )))
-                    .unwrap();
-                return Ok(response);
+                return Ok(getErrorResponse(
+                    StatusCode::BAD_REQUEST,
+                    "Chunked encoding is not supported by CGI.".to_string(),
+                ));
             }
         }
 
@@ -178,12 +175,15 @@ impl Script {
             if let Some(parent) = p.parent() {
                 cwd = &parent.to_string_lossy();
             } else {
-                cwd = "";
+                cwd = ".";
             }
             if let Some(filename) = p.file_name() {
                 path = &filename.to_string_lossy();
             } else {
-                path = "";
+                return Ok(getErrorResponse(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Cannot use {} as path", &self.path),
+                ));
             }
         }
 
@@ -202,7 +202,12 @@ fn getHostPort(value: &str) -> Option<(&str, u16)> {
     }
 }
 
-static EMPTY_STR :&'static str = "";
+fn getErrorResponse(code: impl Into<StatusCode>, msg: String) -> Response<Full<Bytes>> {
+    Response::builder()
+        .status(code)
+        .body(Full::new(Bytes::from(msg)))
+        .unwrap()
+}
 
 #[cfg(target_os = "macos")]
 static OS_SPECIFIC_VARS: &[&str] = &["DYLD_LIBRARY_PATH"];
