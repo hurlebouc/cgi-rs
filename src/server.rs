@@ -25,6 +25,9 @@ struct Script {
 
     // Arguments of the CGI executable
     args: Vec<String>,
+
+    // Inherited environment variables
+    inherited_env: Vec<String>,
 }
 
 impl Script {
@@ -129,12 +132,39 @@ impl Script {
         }
 
         if let Ok(env_path) = std::env::var("PATH") {
-            env.insert("PATH".to_string(), env_path);
+            if !env_path.is_empty() {
+                env.insert("PATH".to_string(), env_path);
+            } else {
+                env.insert(
+                    "PATH".to_string(),
+                    "/bin:/usr/bin:/usr/ucb:/usr/bsd:/usr/local/bin".to_string(),
+                );
+            }
         } else {
             env.insert(
                 "PATH".to_string(),
                 "/bin:/usr/bin:/usr/ucb:/usr/bsd:/usr/local/bin".to_string(),
             );
+        }
+
+        for e in &self.inherited_env {
+            if let Ok(k) = std::env::var(e) {
+                if !k.is_empty() {
+                    env.insert(e.clone(), k);
+                }
+            }
+        }
+
+        for e in OS_SPECIFIC_VARS {
+            if let Ok(k) = std::env::var(e) {
+                if !k.is_empty() {
+                    env.insert(e.to_string(), k);
+                }
+            }
+        }
+
+        for (k, v) in &self.env {
+            env.insert(k.clone(), v.clone());
         }
 
         Command::new("echo").arg("coucou").envs(env);
@@ -151,3 +181,34 @@ fn getHostPort(value: &str) -> Option<(&str, u16)> {
         None
     }
 }
+
+#[cfg(target_os = "macos")]
+static OS_SPECIFIC_VARS: &[&str] = &["DYLD_LIBRARY_PATH"];
+#[cfg(target_os = "ios")]
+static OS_SPECIFIC_VARS: &[&str] = &["DYLD_LIBRARY_PATH"];
+#[cfg(target_os = "linux")]
+static OS_SPECIFIC_VARS: &[&str] = &["LD_LIBRARY_PATH"];
+#[cfg(target_os = "freebsd")]
+static OS_SPECIFIC_VARS: &[&str] = &["LD_LIBRARY_PATH"];
+#[cfg(target_os = "netbsd")]
+static OS_SPECIFIC_VARS: &[&str] = &["LD_LIBRARY_PATH"];
+#[cfg(target_os = "openbsd")]
+static OS_SPECIFIC_VARS: &[&str] = &["LD_LIBRARY_PATH"];
+#[cfg(target_os = "hpux")]
+static OS_SPECIFIC_VARS: &[&str] = &["LD_LIBRARY_PATH", "SHLIB_PATH"];
+#[cfg(target_os = "irix")]
+static OS_SPECIFIC_VARS: &[&str] = &["LD_LIBRARY_PATH", "LD_LIBRARYN32_PATH", "LD_LIBRARY64_PATH"];
+#[cfg(target_os = "illumos")]
+static OS_SPECIFIC_VARS: &[&str] = &[
+    "LD_LIBRARY_PATH",
+    "LD_LIBRARY_PATH_32",
+    "LD_LIBRARY_PATH_64",
+];
+#[cfg(target_os = "solaris")]
+static OS_SPECIFIC_VARS: &[&str] = &[
+    "LD_LIBRARY_PATH",
+    "LD_LIBRARY_PATH_32",
+    "LD_LIBRARY_PATH_64",
+];
+#[cfg(target_os = "windows")]
+static OS_SPECIFIC_VARS: &[&str] = &["SystemRoot", "COMSPEC", "PATHEXT", "WINDIR"];
