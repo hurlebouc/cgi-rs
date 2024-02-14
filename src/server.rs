@@ -1,4 +1,4 @@
-use std::{collections::HashMap, convert::Infallible, net::SocketAddr};
+use std::{collections::HashMap, convert::Infallible, net::SocketAddr, path::Path};
 
 use http_body_util::Full;
 use hyper::{
@@ -167,6 +167,17 @@ impl Script {
             env.insert(k.clone(), v.clone());
         }
 
+        let cwd: &str;
+        let path: &str;
+
+        if let Some(dir) = &self.dir {
+            cwd = dir;
+            path = &self.path
+        } else {
+            let p = Path::new(&self.path);
+            cwd = p.file_name().unwrap_or_else(|| );
+        }
+
         Command::new("echo").arg("coucou").envs(env);
 
         todo!()
@@ -181,6 +192,8 @@ fn getHostPort(value: &str) -> Option<(&str, u16)> {
         None
     }
 }
+
+static EMPTY_STR :&'static str = "";
 
 #[cfg(target_os = "macos")]
 static OS_SPECIFIC_VARS: &[&str] = &["DYLD_LIBRARY_PATH"];
