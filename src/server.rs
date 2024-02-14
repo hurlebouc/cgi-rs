@@ -3,7 +3,7 @@ use std::{collections::HashMap, convert::Infallible, net::SocketAddr};
 use http_body_util::Full;
 use hyper::{
     body::{Bytes, Incoming},
-    header::{HeaderValue, HOST, TRANSFER_ENCODING},
+    header::{HeaderValue, CONTENT_LENGTH, CONTENT_TYPE, HOST, TRANSFER_ENCODING},
     Request, Response, StatusCode,
 };
 use tokio::process::Command;
@@ -87,13 +87,54 @@ impl Script {
 
         for k in req.headers().keys() {
             let k = k.as_str().to_uppercase();
+            if k == "PROXY" {
+                continue;
+            }
             let join_str: &str;
             if k == "COOKIE" {
                 join_str = ";";
             } else {
                 join_str = ",";
             }
-            join
+            let mut iter = req.headers().get_all(&k).into_iter();
+            if let Some(Ok(first)) = iter.next().map(|e| e.to_str()) {
+                let vs = iter.fold(first.to_string(), |s, hv| {
+                    if let Ok(h) = hv.to_str() {
+                        s + join_str + h
+                    } else {
+                        s
+                    }
+                });
+                env.insert("HTTP_".to_string() + &k, vs);
+            }
+        }
+
+        if let Some(cl) = req
+            .headers()
+            .get(CONTENT_LENGTH)
+            .and_then(|h| h.to_str().ok())
+            .and_then(|s| s.parse::<u32>().ok())
+        {
+            env.insert("CONTENT_LENGTH".to_string(), cl.to_string());
+        }
+
+        if let Some(ct) = req
+            .headers()
+            .get(CONTENT_TYPE)
+            .and_then(|h| h.to_str().ok())
+        {
+            if !ct.is_empty() {
+                env.insert("CONTENT_TYPE".to_string(), ct.to_string());
+            }
+        }
+
+        if let Ok(env_path) = std::env::var("PATH") {
+            env.insert("PATH".to_string(), env_path);
+        } else {
+            env.insert(
+                "PATH".to_string(),
+                "/bin:/usr/bin:/usr/ucb:/usr/bsd:/usr/local/bin".to_string(),
+            );
         }
 
         Command::new("echo").arg("coucou").envs(env);
