@@ -175,7 +175,16 @@ impl Script {
             path = &self.path
         } else {
             let p = Path::new(&self.path);
-            cwd = p.file_name().unwrap_or_else(|| );
+            if let Some(parent) = p.parent() {
+                cwd = &parent.to_string_lossy();
+            } else {
+                cwd = "";
+            }
+            if let Some(filename) = p.file_name() {
+                path = &filename.to_string_lossy();
+            } else {
+                path = "";
+            }
         }
 
         Command::new("echo").arg("coucou").envs(env);
