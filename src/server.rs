@@ -1,12 +1,17 @@
-use std::{collections::HashMap, convert::Infallible, net::SocketAddr, path::Path};
+use std::{
+    borrow::Cow, collections::HashMap, convert::Infallible, net::SocketAddr, path::Path,
+    process::Stdio,
+};
 
-use http_body_util::Full;
+use http_body_util::{BodyStream, Full};
 use hyper::{
     body::{Bytes, Incoming},
     header::{HeaderValue, CONTENT_LENGTH, CONTENT_TYPE, HOST, TRANSFER_ENCODING},
     Request, Response, StatusCode,
 };
-use tokio::process::Command;
+use tokio::{io::AsyncWriteExt, process::Command};
+
+use futures::{StreamExt, TryStreamExt};
 
 struct Script {
     // Path to the CGI executable
@@ -164,21 +169,26 @@ impl Script {
             env.insert(k.clone(), v.clone());
         }
 
-        let cwd: &str;
-        let path: &str;
+        let cwd_cow: Cow<str>;
+        let path_cow: Cow<str>;
 
         if let Some(dir) = &self.dir {
-            cwd = dir;
-            path = &self.path
+            cwd_cow = Cow::from(dir);
+            path_cow = Cow::from(&self.path)
         } else {
             let p = Path::new(&self.path);
             if let Some(parent) = p.parent() {
-                cwd = &parent.to_string_lossy();
+                let parent_path = parent.to_string_lossy();
+                if parent_path.is_empty() {
+                    cwd_cow = Cow::from(".")
+                } else {
+                    cwd_cow = parent_path;
+                }
             } else {
-                cwd = ".";
+                cwd_cow = Cow::from(".");
             }
             if let Some(filename) = p.file_name() {
-                path = &filename.to_string_lossy();
+                path_cow = filename.to_string_lossy();
             } else {
                 return Ok(getErrorResponse(
                     StatusCode::INTERNAL_SERVER_ERROR,
@@ -187,7 +197,37 @@ impl Script {
             }
         }
 
-        Command::new("echo").arg("coucou").envs(env);
+        let cwd: &str = &cwd_cow;
+        let path: &str = &path_cow;
+
+        let mut body = BodyStream::new(req.into_body());
+
+        let child_opt = Command::new(path)
+            .current_dir(cwd)
+            .args(&self.args)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .envs(env)
+            .spawn();
+
+        if let Err(err) = child_opt {
+            return Ok(getErrorResponse(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Cannot run cgi exectuable with error: {}", err),
+            ));
+        }
+
+        let child = child_opt.unwrap();
+        let mut stdin = child.stdin.unwrap();
+
+        tokio::spawn(async move {
+            // à revoir !!!!!!!!!!!!!!
+            loop {
+                let c = body.try_next().await.unwrap().unwrap().into_data().unwrap();
+                stdin.write(&c).await.unwrap();
+            }
+        });
 
         todo!()
     }
