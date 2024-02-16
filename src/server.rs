@@ -3,15 +3,20 @@ use std::{
     process::Stdio,
 };
 
-use http_body_util::{BodyStream, Full};
+use http_body_util::{combinators::Frame, BodyStream, Full, StreamBody};
 use hyper::{
-    body::{Bytes, Incoming},
+    body::{self, Body, Bytes, Incoming},
     header::{HeaderValue, CONTENT_LENGTH, CONTENT_TYPE, HOST, TRANSFER_ENCODING},
     Request, Response, StatusCode,
 };
-use tokio::{io::AsyncWriteExt, process::Command};
+use log::error;
+use tokio::{
+    io::AsyncWriteExt,
+    process::{ChildStdin, ChildStdout, Command},
+    task::JoinHandle,
+};
 
-use futures::{StreamExt, TryStreamExt};
+use futures::{Stream, StreamExt, TryStreamExt};
 
 struct Script {
     // Path to the CGI executable
@@ -200,7 +205,7 @@ impl Script {
         let cwd: &str = &cwd_cow;
         let path: &str = &path_cow;
 
-        let mut body = BodyStream::new(req.into_body());
+        let body = BodyStream::new(req.into_body());
 
         let child_opt = Command::new(path)
             .current_dir(cwd)
@@ -218,16 +223,24 @@ impl Script {
             ));
         }
 
-        let child = child_opt.unwrap();
-        let mut stdin = child.stdin.unwrap();
+        let mut child = child_opt.unwrap();
+        let stdin_opt = child.stdin.take();
 
-        tokio::spawn(async move {
-            // à revoir !!!!!!!!!!!!!!
-            loop {
-                let c = body.try_next().await.unwrap().unwrap().into_data().unwrap();
-                stdin.write(&c).await.unwrap();
-            }
-        });
+        if let None = stdin_opt {
+            return Ok(getErrorResponse(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Cannot get child stdin"),
+            ));
+        }
+
+        let stdin = stdin_opt.unwrap();
+
+        let join_input = tokio::spawn(feed_stdin(stdin, body));
+
+        match tokio::try_join!(flatten_join_handle(join_input)) {
+            Ok(((),)) => {}
+            Err(err) => return Ok(getErrorResponse(StatusCode::INTERNAL_SERVER_ERROR, err)),
+        }
 
         todo!()
     }
@@ -247,6 +260,37 @@ fn getErrorResponse(code: impl Into<StatusCode>, msg: String) -> Response<Full<B
         .status(code)
         .body(Full::new(Bytes::from(msg)))
         .unwrap()
+}
+
+async fn flatten_join_handle<T>(handle: JoinHandle<Result<T, String>>) -> Result<T, String> {
+    match handle.await {
+        Ok(Ok(result)) => Ok(result),
+        Ok(Err(err)) => Err(err),
+        Err(err) => Err(format!("handling failed: {}", err)),
+    }
+}
+
+async fn feed_stdin(mut stdin: ChildStdin, mut body: BodyStream<Incoming>) -> Result<(), String> {
+    while let Some(frame_opt) = body.next().await {
+        match frame_opt {
+            Ok(frame) => {
+                if let Ok(bytes) = frame.into_data() {
+                    if let Err(err) = stdin.write_all(&bytes).await {
+                        return Err(format!(
+                            "Error while writing body to the CGI executable: {}",
+                            err
+                        ));
+                    }
+                }
+            }
+            Err(e) => return Err(format!("Error while reading request body: {}", e)),
+        }
+    }
+    Ok(())
+}
+
+fn get_body(stdout: ChildStdout) -> impl Stream<Item = Result<Frame<Bytes>, String>> {
+    todo!()
 }
 
 #[cfg(target_os = "macos")]
