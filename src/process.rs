@@ -58,9 +58,9 @@ where
             Poll::Ready(Ok(())) => Poll::Ready(Some(Ok(readbuf.filled().to_vec()))),
             Poll::Ready(Err(_)) => Poll::Ready(Some(Err(ProcessError {}))), //todo
             Poll::Pending => match proj.tampon.take() {
-                Some(_) => todo!(),
+                Some(v) => todo!(),
                 None => match input.poll_next(cx) {
-                    Poll::Ready(Some(Ok(a))) => todo!(),
+                    Poll::Ready(Some(Ok(v))) => todo!(),
                     Poll::Ready(Some(Err(_))) => Poll::Ready(Some(Err(ProcessError {}))), //todo,
                     Poll::Ready(None) => todo!(),
                     Poll::Pending => todo!(),
