@@ -7,7 +7,7 @@ use std::{
 use futures::{FutureExt, Stream, StreamExt};
 use pin_project::pin_project;
 use tokio::{
-    io::{AsyncRead, AsyncReadExt, ReadBuf},
+    io::{AsyncRead, AsyncReadExt, AsyncWrite, ReadBuf},
     process::{ChildStdin, ChildStdout},
 };
 
@@ -45,8 +45,6 @@ where
 {
     type Item = Result<Vec<u8>, ProcessError>;
 
-    // QUESTION : que faire lorsque le processus ne lie pas les entrées qu'on lui donne ? Il va y avoir une explosion de la mémoire...
-
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let proj = self.project();
         let input = proj.input;
@@ -60,10 +58,14 @@ where
             Poll::Pending => match proj.tampon.take() {
                 Some(v) => todo!(),
                 None => match input.poll_next(cx) {
-                    Poll::Ready(Some(Ok(v))) => todo!(),
-                    Poll::Ready(Some(Err(_))) => Poll::Ready(Some(Err(ProcessError {}))), //todo,
-                    Poll::Ready(None) => todo!(),
-                    Poll::Pending => todo!(),
+                    Poll::Ready(Some(Ok(mut v))) => match stdin.poll_write(cx, &mut v) {
+                        Poll::Ready(Ok(size)) => todo!(),
+                        Poll::Ready(Err(_)) => Poll::Ready(Some(Err(ProcessError {}))), //todo
+                        Poll::Pending => Poll::Pending,
+                    },
+                    Poll::Ready(Some(Err(_))) => Poll::Ready(Some(Err(ProcessError {}))), //todo
+                    Poll::Ready(None) => todo!(), // renvoyer un pending et ne plus tirer dessus
+                    Poll::Pending => Poll::Pending,
                 },
             },
         }
