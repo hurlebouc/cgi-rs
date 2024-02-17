@@ -19,7 +19,7 @@ struct ProcessStream<I> {
     stdin: ChildStdin,
     #[pin]
     stdout: ChildStdout,
-    buf: Vec<u8>,
+    tampon: Option<Vec<u8>>,
 }
 
 struct ProcessError {}
@@ -57,9 +57,14 @@ where
         match stdout.poll_read(cx, &mut readbuf) {
             Poll::Ready(Ok(())) => Poll::Ready(Some(Ok(readbuf.filled().to_vec()))),
             Poll::Ready(Err(_)) => Poll::Ready(Some(Err(ProcessError {}))), //todo
-            Poll::Pending => match input.poll_next(cx) {
-                Poll::Ready(a) => todo!(),
-                Poll::Pending => todo!(),
+            Poll::Pending => match proj.tampon.take() {
+                Some(_) => todo!(),
+                None => match input.poll_next(cx) {
+                    Poll::Ready(Some(Ok(a))) => todo!(),
+                    Poll::Ready(Some(Err(_))) => Poll::Ready(Some(Err(ProcessError {}))), //todo,
+                    Poll::Ready(None) => todo!(),
+                    Poll::Pending => todo!(),
+                },
             },
         }
     }
