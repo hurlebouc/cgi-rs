@@ -208,6 +208,7 @@ impl Script {
         let body = BodyStream::new(req.into_body());
 
         let child_opt = Command::new(path)
+            .kill_on_drop(true)
             .current_dir(cwd)
             .args(&self.args)
             .stdin(Stdio::piped())
@@ -287,10 +288,6 @@ async fn feed_stdin(mut stdin: ChildStdin, mut body: BodyStream<Incoming>) -> Re
         }
     }
     Ok(())
-}
-
-fn get_body(stdout: ChildStdout) -> impl Stream<Item = Result<Frame<Bytes>, String>> {
-    todo!()
 }
 
 #[cfg(target_os = "macos")]

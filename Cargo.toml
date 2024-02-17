@@ -13,3 +13,4 @@ hyper-util = { version = "0.1", features = ["full"] }
 regex = "1.10.3"
 futures = "0.3.30"
 log = "0.4.20"
+pin-project = "1.1.4"
