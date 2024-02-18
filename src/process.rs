@@ -120,3 +120,28 @@ fn push_to_stdin<O>(
         }
     }
 }
+
+#[cfg(test)]
+mod process_stream_test {
+    use std::process::Stdio;
+
+    use tokio::process::Command;
+    use tokio_stream::once;
+
+    use super::ProcessStream;
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn simple_process_test() {
+        let child = Command::new("echo")
+            .arg("hello")
+            .arg("world")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("failed to spawn");
+        let input: tokio_stream::Once<Result<Vec<u8>, String>> =
+            once(Ok("value".as_bytes().to_vec()));
+        let process_stream = ProcessStream::new(child, input);
+    }
+}
