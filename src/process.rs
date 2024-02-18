@@ -30,6 +30,23 @@ pub enum Output {
     Stderr(Vec<u8>),
 }
 
+impl Output {
+    pub fn unwrap_out(self) -> Vec<u8> {
+        match self {
+            Output::Stdout(v) => v,
+            Output::Stderr(_) => panic!("Output is err"),
+        }
+    }
+
+    pub fn unwrap_err(self) -> Vec<u8> {
+        match self {
+            Output::Stderr(v) => v,
+            Output::Stdout(_) => panic!("Output is out"),
+        }
+    }
+}
+
+#[derive(Debug)]
 pub struct ProcessError {}
 
 impl<I> ProcessStream<I> {
@@ -125,6 +142,7 @@ fn push_to_stdin<O>(
 mod process_stream_test {
     use std::process::Stdio;
 
+    use futures::StreamExt;
     use tokio::process::Command;
     use tokio_stream::once;
 
@@ -143,5 +161,12 @@ mod process_stream_test {
         let input: tokio_stream::Once<Result<Vec<u8>, String>> =
             once(Ok("value".as_bytes().to_vec()));
         let process_stream = ProcessStream::new(child, input);
+        process_stream
+            .for_each(|r| async move {
+                println!("coucou");
+                let s = String::from_utf8(r.unwrap().unwrap_out()).unwrap();
+                print!("{}", s)
+            })
+            .await;
     }
 }
