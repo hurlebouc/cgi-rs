@@ -7,23 +7,30 @@ use futures::Stream;
 use pin_project::pin_project;
 use tokio::{
     io::{AsyncRead, AsyncWrite, ReadBuf},
-    process::{Child, ChildStdin, ChildStdout},
+    process::{Child, ChildStderr, ChildStdin, ChildStdout},
 };
 
 #[pin_project]
-struct ProcessStream<I> {
+pub struct ProcessStream<I> {
     #[pin]
     input: I,
     #[pin]
     stdin: ChildStdin,
     #[pin]
     stdout: ChildStdout,
+    #[pin]
+    stderr: ChildStderr,
     tampon: Option<Vec<u8>>,
     input_closed: bool,
     child: Child, // keep reference to child process in order not to drop it before dropping the ProcessStream
 }
 
-struct ProcessError {}
+pub enum Output {
+    Stdout(Vec<u8>),
+    Stderr(Vec<u8>),
+}
+
+pub struct ProcessError {}
 
 impl<I> ProcessStream<I> {
     /// Creates a new [`ProcessStream<I>`].
@@ -36,6 +43,7 @@ impl<I> ProcessStream<I> {
             input,
             stdin: child.stdin.take().expect("Child stdin must be piped"),
             stdout: child.stdout.take().expect("Child stdout must be piped"),
+            stderr: child.stderr.take().expect("Child stderr must be piped"),
             tampon: None,
             input_closed: false,
             child,
@@ -47,35 +55,46 @@ impl<I, E> Stream for ProcessStream<I>
 where
     I: Stream<Item = Result<Vec<u8>, E>>,
 {
-    type Item = Result<Vec<u8>, ProcessError>;
+    type Item = Result<Output, ProcessError>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let proj = self.project();
         let input = proj.input;
         let stdin = proj.stdin;
         let stdout = proj.stdout;
+        let stderr = proj.stderr;
         let buf = &mut [0; 1024];
         let mut readbuf = ReadBuf::new(buf);
         match stdout.poll_read(cx, &mut readbuf) {
-            Poll::Ready(Ok(())) => Poll::Ready(Some(Ok(readbuf.filled().to_vec()))),
+            Poll::Ready(Ok(())) => Poll::Ready(Some(Ok(Output::Stdout(readbuf.filled().to_vec())))),
             Poll::Ready(Err(_)) => Poll::Ready(Some(Err(ProcessError {}))), //todo
-            Poll::Pending => match proj.tampon.take() {
-                Some(v) => push_to_stdin(v, stdin, cx, proj.tampon),
-                None => {
-                    if !*proj.input_closed {
-                        match input.poll_next(cx) {
-                            Poll::Ready(Some(Ok(v))) => push_to_stdin(v, stdin, cx, proj.tampon),
-                            Poll::Ready(Some(Err(_))) => Poll::Ready(Some(Err(ProcessError {}))), //todo
-                            Poll::Ready(None) => {
-                                *proj.input_closed = true;
-                                Poll::Pending
-                            }
-                            Poll::Pending => Poll::Pending,
-                        }
-                    } else {
-                        Poll::Pending
-                    }
+            Poll::Pending => match stderr.poll_read(cx, &mut readbuf) {
+                Poll::Ready(Ok(())) => {
+                    Poll::Ready(Some(Ok(Output::Stderr(readbuf.filled().to_vec()))))
                 }
+                Poll::Ready(Err(_)) => Poll::Ready(Some(Err(ProcessError {}))), //todo
+                Poll::Pending => match proj.tampon.take() {
+                    Some(v) => push_to_stdin(v, stdin, cx, proj.tampon),
+                    None => {
+                        if !*proj.input_closed {
+                            match input.poll_next(cx) {
+                                Poll::Ready(Some(Ok(v))) => {
+                                    push_to_stdin(v, stdin, cx, proj.tampon)
+                                }
+                                Poll::Ready(Some(Err(_))) => {
+                                    Poll::Ready(Some(Err(ProcessError {})))
+                                } //todo
+                                Poll::Ready(None) => {
+                                    *proj.input_closed = true;
+                                    Poll::Pending
+                                }
+                                Poll::Pending => Poll::Pending,
+                            }
+                        } else {
+                            Poll::Pending
+                        }
+                    }
+                },
             },
         }
     }
