@@ -81,12 +81,12 @@ where
     }
 }
 
-fn push_to_stdin(
+fn push_to_stdin<O>(
     mut v: Vec<u8>,
     stdin: Pin<&mut ChildStdin>,
     cx: &mut Context,
     tampon: &mut Option<Vec<u8>>,
-) -> Poll<Option<Result<Vec<u8>, ProcessError>>> {
+) -> Poll<Option<Result<O, ProcessError>>> {
     match stdin.poll_write(cx, &mut v) {
         Poll::Ready(Ok(size)) => {
             if size < v.len() {
