@@ -22,6 +22,8 @@ pub struct ProcessStream<I> {
     stderr: ChildStderr,
     tampon: Option<Vec<u8>>,
     input_closed: bool,
+    stdout_closed: bool,
+    stderr_closed: bool,
     child: Child, // keep reference to child process in order not to drop it before dropping the ProcessStream
 }
 
