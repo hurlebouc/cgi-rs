@@ -7,7 +7,7 @@ use futures::Stream;
 use pin_project::pin_project;
 use tokio::{
     io::{AsyncRead, AsyncWrite, ReadBuf},
-    process::{ChildStdin, ChildStdout},
+    process::{Child, ChildStdin, ChildStdout},
 };
 
 #[pin_project]
@@ -20,11 +20,28 @@ struct ProcessStream<I> {
     stdout: ChildStdout,
     tampon: Option<Vec<u8>>,
     input_closed: bool,
+    child: Child, // keep reference to child process in order not to drop it before dropping the ProcessStream
 }
 
 struct ProcessError {}
 
-impl<I> ProcessStream<I> {}
+impl<I> ProcessStream<I> {
+    /// Creates a new [`ProcessStream<I>`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if stdin, stdout or stderr is not piped.
+    pub fn new(mut child: Child, input: I) -> ProcessStream<I> {
+        ProcessStream {
+            input,
+            stdin: child.stdin.take().expect("Child stdin must be piped"),
+            stdout: child.stdout.take().expect("Child stdout must be piped"),
+            tampon: None,
+            input_closed: false,
+            child,
+        }
+    }
+}
 
 impl<I, E> Stream for ProcessStream<I>
 where
