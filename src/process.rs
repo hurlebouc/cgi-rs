@@ -95,6 +95,9 @@ fn push_to_stdin(
             Poll::Pending
         }
         Poll::Ready(Err(_)) => Poll::Ready(Some(Err(ProcessError {}))), //todo
-        Poll::Pending => Poll::Pending,
+        Poll::Pending => {
+            *tampon = Some(v);
+            Poll::Pending
+        }
     }
 }
