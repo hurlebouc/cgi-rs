@@ -1,13 +1,12 @@
 use std::{
-    ops::{Deref, DerefMut},
-    pin::{self, Pin},
+    pin::Pin,
     task::{Context, Poll},
 };
 
-use futures::{FutureExt, Stream, StreamExt};
+use futures::Stream;
 use pin_project::pin_project;
 use tokio::{
-    io::{AsyncRead, AsyncReadExt, AsyncWrite, ReadBuf},
+    io::{AsyncRead, AsyncWrite, ReadBuf},
     process::{ChildStdin, ChildStdout},
 };
 
@@ -20,24 +19,12 @@ struct ProcessStream<I> {
     #[pin]
     stdout: ChildStdout,
     tampon: Option<Vec<u8>>,
+    input_closed: bool,
 }
 
 struct ProcessError {}
 
-impl<I> ProcessStream<I> {
-    fn get_stdout(self: Pin<&mut Self>) -> Pin<&mut ChildStdout> {
-        unsafe { self.map_unchecked_mut(|s| &mut s.stdout) }
-    }
-
-    fn get_stdin(self: Pin<&mut Self>) -> Pin<&mut ChildStdin> {
-        unsafe { self.map_unchecked_mut(|s| &mut s.stdin) }
-    }
-
-    fn get_input(self: Pin<&mut Self>) -> Pin<&mut I> {
-        unsafe { self.map_unchecked_mut(|s| &mut s.input) }
-    }
-}
-//impl<I> Unpin for ProcessStream<I> {}
+impl<I> ProcessStream<I> {}
 
 impl<I, E> Stream for ProcessStream<I>
 where
@@ -57,12 +44,21 @@ where
             Poll::Ready(Err(_)) => Poll::Ready(Some(Err(ProcessError {}))), //todo
             Poll::Pending => match proj.tampon.take() {
                 Some(v) => push_to_stdin(v, stdin, cx, proj.tampon),
-                None => match input.poll_next(cx) {
-                    Poll::Ready(Some(Ok(v))) => push_to_stdin(v, stdin, cx, proj.tampon),
-                    Poll::Ready(Some(Err(_))) => Poll::Ready(Some(Err(ProcessError {}))), //todo
-                    Poll::Ready(None) => todo!(), // todo renvoyer un pending et ne plus tirer dessus
-                    Poll::Pending => Poll::Pending,
-                },
+                None => {
+                    if !*proj.input_closed {
+                        match input.poll_next(cx) {
+                            Poll::Ready(Some(Ok(v))) => push_to_stdin(v, stdin, cx, proj.tampon),
+                            Poll::Ready(Some(Err(_))) => Poll::Ready(Some(Err(ProcessError {}))), //todo
+                            Poll::Ready(None) => {
+                                *proj.input_closed = true;
+                                Poll::Pending
+                            }
+                            Poll::Pending => Poll::Pending,
+                        }
+                    } else {
+                        Poll::Pending
+                    }
+                }
             },
         }
     }
