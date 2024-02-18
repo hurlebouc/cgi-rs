@@ -59,7 +59,12 @@ where
                 Some(v) => todo!(),
                 None => match input.poll_next(cx) {
                     Poll::Ready(Some(Ok(mut v))) => match stdin.poll_write(cx, &mut v) {
-                        Poll::Ready(Ok(size)) => todo!(),
+                        Poll::Ready(Ok(size)) => {
+                            if size < v.len() {
+                                *proj.tampon = Some(v[size..].to_vec());
+                            }
+                            Poll::Pending
+                        }
                         Poll::Ready(Err(_)) => Poll::Ready(Some(Err(ProcessError {}))), //todo
                         Poll::Pending => Poll::Pending,
                     },
