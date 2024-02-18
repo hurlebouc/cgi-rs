@@ -56,23 +56,32 @@ where
             Poll::Ready(Ok(())) => Poll::Ready(Some(Ok(readbuf.filled().to_vec()))),
             Poll::Ready(Err(_)) => Poll::Ready(Some(Err(ProcessError {}))), //todo
             Poll::Pending => match proj.tampon.take() {
-                Some(v) => todo!(),
+                Some(v) => push_to_stdin(v, stdin, cx, proj.tampon),
                 None => match input.poll_next(cx) {
-                    Poll::Ready(Some(Ok(mut v))) => match stdin.poll_write(cx, &mut v) {
-                        Poll::Ready(Ok(size)) => {
-                            if size < v.len() {
-                                *proj.tampon = Some(v[size..].to_vec());
-                            }
-                            Poll::Pending
-                        }
-                        Poll::Ready(Err(_)) => Poll::Ready(Some(Err(ProcessError {}))), //todo
-                        Poll::Pending => Poll::Pending,
-                    },
+                    Poll::Ready(Some(Ok(v))) => push_to_stdin(v, stdin, cx, proj.tampon),
                     Poll::Ready(Some(Err(_))) => Poll::Ready(Some(Err(ProcessError {}))), //todo
-                    Poll::Ready(None) => todo!(), // renvoyer un pending et ne plus tirer dessus
+                    Poll::Ready(None) => todo!(), // todo renvoyer un pending et ne plus tirer dessus
                     Poll::Pending => Poll::Pending,
                 },
             },
         }
+    }
+}
+
+fn push_to_stdin(
+    mut v: Vec<u8>,
+    stdin: Pin<&mut ChildStdin>,
+    cx: &mut Context,
+    tampon: &mut Option<Vec<u8>>,
+) -> Poll<Option<Result<Vec<u8>, ProcessError>>> {
+    match stdin.poll_write(cx, &mut v) {
+        Poll::Ready(Ok(size)) => {
+            if size < v.len() {
+                *tampon = Some(v[size..].to_vec());
+            }
+            Poll::Pending
+        }
+        Poll::Ready(Err(_)) => Poll::Ready(Some(Err(ProcessError {}))), //todo
+        Poll::Pending => Poll::Pending,
     }
 }
