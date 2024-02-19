@@ -209,8 +209,29 @@ mod process_stream_test {
 
     use super::ProcessStream;
 
-    #[tokio::test(flavor = "multi_thread")]
+    #[tokio::test]
     async fn simple_process_test() {
+        let child = Command::new("echo")
+            .arg("hello")
+            .arg("world")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("failed to spawn");
+        let input = once(async { Ok::<Bytes, String>(Bytes::from("value".as_bytes())) });
+        let process_stream = ProcessStream::new(child, input);
+        let s = process_stream
+            .map(|r| r.unwrap().unwrap_out())
+            .fold("".to_string(), |s, b| async move {
+                s + &String::from_utf8_lossy(&b)
+            })
+            .await;
+        assert_eq!(s, "hello world\n")
+    }
+
+    #[tokio::test]
+    async fn read_input_test() {
         let child = Command::new("echo")
             .arg("hello")
             .arg("world")
