@@ -21,7 +21,7 @@ pub struct ProcessStream<I> {
     stdout: ChildStdout,
     #[pin]
     stderr: ChildStderr,
-    tampon: Option<Bytes>,
+    input_buffer: Option<Bytes>,
     input_closed: bool,
     stdin_closed: bool,
     stdout_closed: bool,
@@ -65,7 +65,7 @@ impl<I> ProcessStream<I> {
             stdin: child.stdin.take().expect("Child stdin must be piped"),
             stdout: child.stdout.take().expect("Child stdout must be piped"),
             stderr: child.stderr.take().expect("Child stderr must be piped"),
-            tampon: None,
+            input_buffer: None,
             input_closed: false,
             stdin_closed: false,
             stdout_closed: false,
@@ -142,8 +142,8 @@ where
             return Poll::Pending;
         }
 
-        if let Some(v) = proj.tampon.take() {
-            return push_to_stdin(v, stdin, cx, proj.tampon, proj.stdin_closed);
+        if let Some(v) = proj.input_buffer.take() {
+            return push_to_stdin(v, stdin, cx, proj.input_buffer, proj.stdin_closed);
         }
 
         if *proj.input_closed {
@@ -152,7 +152,7 @@ where
 
         let input_poll = input.poll_next(cx);
         if let Poll::Ready(Some(Ok(v))) = input_poll {
-            return push_to_stdin(v, stdin, cx, proj.tampon, proj.stdin_closed);
+            return push_to_stdin(v, stdin, cx, proj.input_buffer, proj.stdin_closed);
         }
         if let Poll::Ready(Some(Err(_))) = input_poll {
             *proj.input_closed = true;
