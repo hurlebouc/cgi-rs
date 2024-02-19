@@ -201,9 +201,11 @@ mod process_stream_test {
     use std::process::Stdio;
 
     use bytes::Bytes;
-    use futures::StreamExt;
+    use futures::{
+        stream::{once, Once},
+        StreamExt,
+    };
     use tokio::process::Command;
-    use tokio_stream::once;
 
     use super::ProcessStream;
 
@@ -217,8 +219,7 @@ mod process_stream_test {
             .stderr(Stdio::piped())
             .spawn()
             .expect("failed to spawn");
-        let input: tokio_stream::Once<Result<Bytes, String>> =
-            once(Ok(Bytes::from("value".as_bytes())));
+        let input = once(async { Ok::<Bytes, String>(Bytes::from("value".as_bytes())) });
         let process_stream = ProcessStream::new(child, input);
         process_stream
             .for_each(|r| async move {
