@@ -204,7 +204,7 @@ mod process_stream_test {
 
     use bytes::Bytes;
     use futures::{
-        stream::{once, Once},
+        stream::{self},
         StreamExt,
     };
     use tokio::process::Command;
@@ -221,7 +221,7 @@ mod process_stream_test {
             .stderr(Stdio::piped())
             .spawn()
             .expect("failed to spawn");
-        let input = once(async { Ok::<Bytes, String>(Bytes::from("value".as_bytes())) });
+        let input = stream::empty::<Result<Bytes, String>>();
         let process_stream = ProcessStream::new(child, input, 1024);
         let s = process_stream
             .map(|r| r.unwrap().unwrap_out())
@@ -242,7 +242,7 @@ mod process_stream_test {
             .stderr(Stdio::piped())
             .spawn()
             .expect("failed to spawn");
-        let input = once(async { Ok::<Bytes, String>(Bytes::from("value".as_bytes())) });
+        let input = stream::empty::<Result<Bytes, String>>();
         let process_stream = ProcessStream::new(child, input, 1);
         let s = process_stream
             .map(|r| r.unwrap().unwrap_out())
@@ -255,15 +255,13 @@ mod process_stream_test {
 
     #[tokio::test]
     async fn read_input_test() {
-        let child = Command::new("echo")
-            .arg("hello")
-            .arg("world")
+        let child = Command::new("cat")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
             .expect("failed to spawn");
-        let input = once(async { Ok::<Bytes, String>(Bytes::from("value".as_bytes())) });
+        let input = stream::once(async { Ok::<Bytes, String>(Bytes::from("value".as_bytes())) });
         let process_stream = ProcessStream::new(child, input, 1);
         let s = process_stream
             .map(|r| r.unwrap().unwrap_out())
