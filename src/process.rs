@@ -26,6 +26,7 @@ pub struct ProcessStream<I> {
     stdin_closed: bool,
     stdout_closed: bool,
     stderr_closed: bool,
+    output_buffer_size: usize,
     child: Child, // keep reference to child process in order not to drop it before dropping the ProcessStream
 }
 
@@ -59,7 +60,7 @@ impl<I> ProcessStream<I> {
     /// # Panics
     ///
     /// Panics if stdin, stdout or stderr is not piped.
-    pub fn new(mut child: Child, input: I) -> ProcessStream<I> {
+    pub fn new(mut child: Child, input: I, output_buffer_size: usize) -> ProcessStream<I> {
         ProcessStream {
             input,
             stdin: child.stdin.take().expect("Child stdin must be piped"),
@@ -70,6 +71,7 @@ impl<I> ProcessStream<I> {
             stdin_closed: false,
             stdout_closed: false,
             stderr_closed: false,
+            output_buffer_size,
             child,
         }
     }
@@ -93,8 +95,8 @@ where
         let stdin = proj.stdin;
         let stdout = proj.stdout;
         let stderr = proj.stderr;
-        let buf = &mut [0; 1024];
-        let mut readbuf = ReadBuf::new(buf);
+        let mut buf_vec = vec![0; *proj.output_buffer_size];
+        let mut readbuf = ReadBuf::new(&mut buf_vec);
 
         if !*proj.stdout_closed {
             let stdout_poll = stdout.poll_read(cx, &mut readbuf);
@@ -220,7 +222,7 @@ mod process_stream_test {
             .spawn()
             .expect("failed to spawn");
         let input = once(async { Ok::<Bytes, String>(Bytes::from("value".as_bytes())) });
-        let process_stream = ProcessStream::new(child, input);
+        let process_stream = ProcessStream::new(child, input, 1024);
         let s = process_stream
             .map(|r| r.unwrap().unwrap_out())
             .fold("".to_string(), |s, b| async move {
@@ -241,7 +243,7 @@ mod process_stream_test {
             .spawn()
             .expect("failed to spawn");
         let input = once(async { Ok::<Bytes, String>(Bytes::from("value".as_bytes())) });
-        let process_stream = ProcessStream::new(child, input);
+        let process_stream = ProcessStream::new(child, input, 1024);
         process_stream
             .for_each(|r| async move {
                 //println!("coucou");
