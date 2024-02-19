@@ -3,6 +3,7 @@ use std::{
     task::{Context, Poll},
 };
 
+use bytes::{Buf, Bytes};
 use futures::Stream;
 use pin_project::pin_project;
 use tokio::{
@@ -20,7 +21,7 @@ pub struct ProcessStream<I> {
     stdout: ChildStdout,
     #[pin]
     stderr: ChildStderr,
-    tampon: Option<Vec<u8>>,
+    tampon: Option<Bytes>,
     input_closed: bool,
     stdin_closed: bool,
     stdout_closed: bool,
@@ -29,19 +30,19 @@ pub struct ProcessStream<I> {
 }
 
 pub enum Output {
-    Stdout(Vec<u8>),
-    Stderr(Vec<u8>),
+    Stdout(Bytes),
+    Stderr(Bytes),
 }
 
 impl Output {
-    pub fn unwrap_out(self) -> Vec<u8> {
+    pub fn unwrap_out(self) -> Bytes {
         match self {
             Output::Stdout(v) => v,
             Output::Stderr(_) => panic!("Output is err"),
         }
     }
 
-    pub fn unwrap_err(self) -> Vec<u8> {
+    pub fn unwrap_err(self) -> Bytes {
         match self {
             Output::Stderr(v) => v,
             Output::Stdout(_) => panic!("Output is out"),
@@ -76,7 +77,7 @@ impl<I> ProcessStream<I> {
 
 impl<I, E> Stream for ProcessStream<I>
 where
-    I: Stream<Item = Result<Vec<u8>, E>>,
+    I: Stream<Item = Result<Bytes, E>>,
 {
     type Item = Result<Output, ProcessError>;
 
@@ -105,7 +106,9 @@ where
                         return Poll::Ready(None);
                     }
                 }
-                return Poll::Ready(Some(Ok(Output::Stdout(readbuf.filled().to_vec()))));
+                return Poll::Ready(Some(Ok(Output::Stdout(Bytes::from(
+                    readbuf.filled().to_vec(),
+                )))));
             }
             if let Poll::Ready(Err(_)) = stdout_poll {
                 *proj.stdout_closed = true;
@@ -124,7 +127,9 @@ where
                         return Poll::Ready(None);
                     }
                 }
-                return Poll::Ready(Some(Ok(Output::Stderr(readbuf.filled().to_vec()))));
+                return Poll::Ready(Some(Ok(Output::Stderr(Bytes::from(
+                    readbuf.filled().to_vec(),
+                )))));
             }
             if let Poll::Ready(Err(_)) = stderr_poll {
                 *proj.stdout_closed = true;
@@ -163,10 +168,10 @@ where
 }
 
 fn push_to_stdin<O>(
-    mut v: Vec<u8>,
+    mut v: Bytes,
     stdin: Pin<&mut ChildStdin>,
     cx: &mut Context,
-    tampon: &mut Option<Vec<u8>>,
+    tampon: &mut Option<Bytes>,
     stdin_closed: &mut bool,
 ) -> Poll<Option<Result<O, ProcessError>>> {
     match stdin.poll_write(cx, &mut v) {
@@ -175,7 +180,8 @@ fn push_to_stdin<O>(
                 *stdin_closed = true;
             }
             if size < v.len() {
-                *tampon = Some(v[size..].to_vec());
+                //*tampon = Some(v[size..].to_vec());
+                *tampon = Some(v.slice(size..));
             }
             Poll::Pending
         }
@@ -194,6 +200,7 @@ fn push_to_stdin<O>(
 mod process_stream_test {
     use std::process::Stdio;
 
+    use bytes::Bytes;
     use futures::StreamExt;
     use tokio::process::Command;
     use tokio_stream::once;
@@ -210,13 +217,14 @@ mod process_stream_test {
             .stderr(Stdio::piped())
             .spawn()
             .expect("failed to spawn");
-        let input: tokio_stream::Once<Result<Vec<u8>, String>> =
-            once(Ok("value".as_bytes().to_vec()));
+        let input: tokio_stream::Once<Result<Bytes, String>> =
+            once(Ok(Bytes::from("value".as_bytes())));
         let process_stream = ProcessStream::new(child, input);
         process_stream
             .for_each(|r| async move {
                 //println!("coucou");
-                let s = String::from_utf8(r.unwrap().unwrap_out()).unwrap();
+                let b = r.unwrap().unwrap_out();
+                let s = String::from_utf8(b.to_vec()).unwrap();
                 print!("{}", s)
             })
             .await;
