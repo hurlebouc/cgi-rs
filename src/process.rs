@@ -81,7 +81,7 @@ where
     type Item = Result<Output, ProcessError>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        println!("poll_next");
+        //println!("poll_next");
         let proj = self.project();
 
         if *proj.stdout_closed && *proj.stderr_closed {
@@ -215,7 +215,7 @@ mod process_stream_test {
         let process_stream = ProcessStream::new(child, input);
         process_stream
             .for_each(|r| async move {
-                println!("coucou");
+                //println!("coucou");
                 let s = String::from_utf8(r.unwrap().unwrap_out()).unwrap();
                 print!("{}", s)
             })
