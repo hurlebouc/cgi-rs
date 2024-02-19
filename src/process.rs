@@ -233,6 +233,27 @@ mod process_stream_test {
     }
 
     #[tokio::test]
+    async fn small_buffer_test() {
+        let child = Command::new("echo")
+            .arg("hello")
+            .arg("world")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("failed to spawn");
+        let input = once(async { Ok::<Bytes, String>(Bytes::from("value".as_bytes())) });
+        let process_stream = ProcessStream::new(child, input, 1);
+        let s = process_stream
+            .map(|r| r.unwrap().unwrap_out())
+            .fold("".to_string(), |s, b| async move {
+                s + &String::from_utf8_lossy(&b)
+            })
+            .await;
+        assert_eq!(s, "hello world\n")
+    }
+
+    #[tokio::test]
     async fn read_input_test() {
         let child = Command::new("echo")
             .arg("hello")
@@ -243,14 +264,13 @@ mod process_stream_test {
             .spawn()
             .expect("failed to spawn");
         let input = once(async { Ok::<Bytes, String>(Bytes::from("value".as_bytes())) });
-        let process_stream = ProcessStream::new(child, input, 1024);
-        process_stream
-            .for_each(|r| async move {
-                //println!("coucou");
-                let b = r.unwrap().unwrap_out();
-                let s = String::from_utf8(b.to_vec()).unwrap();
-                print!("{}", s)
+        let process_stream = ProcessStream::new(child, input, 1);
+        let s = process_stream
+            .map(|r| r.unwrap().unwrap_out())
+            .fold("".to_string(), |s, b| async move {
+                s + &String::from_utf8_lossy(&b)
             })
             .await;
+        assert_eq!(s, "hello world\n")
     }
 }
