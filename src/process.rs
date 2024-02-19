@@ -3,7 +3,7 @@ use std::{
     task::{Context, Poll},
 };
 
-use bytes::{Buf, Bytes};
+use bytes::Bytes;
 use futures::Stream;
 use pin_project::pin_project;
 use tokio::{
@@ -84,10 +84,11 @@ where
     type Item = Result<Output, ProcessError>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        //println!("poll_next");
+        println!("poll_next");
         let proj = self.project();
 
         if *proj.stdout_closed && *proj.stderr_closed {
+            println!("--> stdout and stderr closed");
             return Poll::Ready(None);
         }
 
@@ -101,42 +102,52 @@ where
         if !*proj.stdout_closed {
             let stdout_poll = stdout.poll_read(cx, &mut readbuf);
 
-            if let Poll::Ready(Ok(())) = stdout_poll {
-                if readbuf.filled().len() == 0 {
-                    *proj.stdout_closed = true;
-                    if *proj.stderr_closed {
-                        return Poll::Ready(None);
-                    }
-                }
-                return Poll::Ready(Some(Ok(Output::Stdout(Bytes::from(
-                    readbuf.filled().to_vec(),
-                )))));
-            }
             if let Poll::Ready(Err(_)) = stdout_poll {
                 *proj.stdout_closed = true;
                 *proj.stderr_closed = true;
+                println!("--> stdout gives error");
                 return Poll::Ready(Some(Err(ProcessError {}))); //todo
+            }
+
+            if let Poll::Ready(Ok(())) = stdout_poll {
+                if readbuf.filled().len() != 0 {
+                    println!("--> stdout gives output");
+                    return Poll::Ready(Some(Ok(Output::Stdout(Bytes::from(
+                        readbuf.filled().to_vec(),
+                    )))));
+                }
+
+                *proj.stdout_closed = true;
+                if *proj.stderr_closed {
+                    println!("--> stdout closed");
+                    return Poll::Ready(None);
+                }
             }
         }
 
         if !*proj.stderr_closed {
             let stderr_poll = stderr.poll_read(cx, &mut readbuf);
 
-            if let Poll::Ready(Ok(())) = stderr_poll {
-                if readbuf.filled().len() == 0 {
-                    *proj.stderr_closed = true;
-                    if *proj.stdout_closed {
-                        return Poll::Ready(None);
-                    }
-                }
-                return Poll::Ready(Some(Ok(Output::Stderr(Bytes::from(
-                    readbuf.filled().to_vec(),
-                )))));
-            }
             if let Poll::Ready(Err(_)) = stderr_poll {
                 *proj.stdout_closed = true;
                 *proj.stderr_closed = true;
+                println!("--> stderr gives error");
                 return Poll::Ready(Some(Err(ProcessError {}))); //todo
+            }
+
+            if let Poll::Ready(Ok(())) = stderr_poll {
+                if readbuf.filled().len() != 0 {
+                    println!("--> stderr gives output");
+                    return Poll::Ready(Some(Ok(Output::Stderr(Bytes::from(
+                        readbuf.filled().to_vec(),
+                    )))));
+                }
+
+                *proj.stderr_closed = true;
+                if *proj.stdout_closed {
+                    println!("--> stderr closed");
+                    return Poll::Ready(None);
+                }
             }
         }
 
@@ -178,20 +189,22 @@ fn push_to_stdin<O>(
 ) -> Poll<Option<Result<O, ProcessError>>> {
     match stdin.poll_write(cx, &mut v) {
         Poll::Ready(Ok(size)) => {
+            println!("--> match Ready OK. size = {}", size);
             if size == 0 {
                 *stdin_closed = true;
             }
             if size < v.len() {
-                //*tampon = Some(v[size..].to_vec());
                 *tampon = Some(v.slice(size..));
             }
             Poll::Pending
         }
         Poll::Ready(Err(_)) => {
+            println!("--> Error while writing to stdin");
             *stdin_closed = true;
             Poll::Ready(Some(Err(ProcessError {}))) //todo
         }
         Poll::Pending => {
+            println!("--> stdin pending");
             *tampon = Some(v);
             Poll::Pending
         }
@@ -253,8 +266,10 @@ mod process_stream_test {
         assert_eq!(s, "hello world\n")
     }
 
+    //#[tokio::test(flavor = "multi_thread")]
     #[tokio::test]
     async fn read_input_test() {
+        println!("read_input_test");
         let child = Command::new("cat")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -262,13 +277,14 @@ mod process_stream_test {
             .spawn()
             .expect("failed to spawn");
         let input = stream::once(async { Ok::<Bytes, String>(Bytes::from("value".as_bytes())) });
-        let process_stream = ProcessStream::new(child, input, 1);
+        let process_stream = ProcessStream::new(child, input, 1024);
         let s = process_stream
             .map(|r| r.unwrap().unwrap_out())
             .fold("".to_string(), |s, b| async move {
+                println!("RES: {}", String::from_utf8_lossy(&b));
                 s + &String::from_utf8_lossy(&b)
             })
             .await;
-        assert_eq!(s, "hello world\n")
+        assert_eq!(s, "value\n")
     }
 }
