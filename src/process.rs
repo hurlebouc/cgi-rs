@@ -22,6 +22,7 @@ pub struct ProcessStream<I> {
     stderr: ChildStderr,
     tampon: Option<Vec<u8>>,
     input_closed: bool,
+    stdin_closed: bool,
     stdout_closed: bool,
     stderr_closed: bool,
     child: Child, // keep reference to child process in order not to drop it before dropping the ProcessStream
@@ -65,6 +66,9 @@ impl<I> ProcessStream<I> {
             stderr: child.stderr.take().expect("Child stderr must be piped"),
             tampon: None,
             input_closed: false,
+            stdin_closed: false,
+            stdout_closed: false,
+            stderr_closed: false,
             child,
         }
     }
@@ -79,6 +83,11 @@ where
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         println!("poll_next");
         let proj = self.project();
+
+        if *proj.stdout_closed && *proj.stderr_closed {
+            return Poll::Ready(None);
+        }
+
         let input = proj.input;
         let stdin = proj.stdin;
         let stdout = proj.stdout;
@@ -86,26 +95,50 @@ where
         let buf = &mut [0; 1024];
         let mut readbuf = ReadBuf::new(buf);
 
-        let stdout_poll = stdout.poll_read(cx, &mut readbuf);
+        if !*proj.stdout_closed {
+            let stdout_poll = stdout.poll_read(cx, &mut readbuf);
 
-        if let Poll::Ready(Ok(())) = stdout_poll {
-            return Poll::Ready(Some(Ok(Output::Stdout(readbuf.filled().to_vec()))));
-        }
-        if let Poll::Ready(Err(_)) = stdout_poll {
-            return Poll::Ready(Some(Err(ProcessError {}))); //todo
+            if let Poll::Ready(Ok(())) = stdout_poll {
+                if readbuf.filled().len() == 0 {
+                    *proj.stdout_closed = true;
+                    if *proj.stderr_closed {
+                        return Poll::Ready(None);
+                    }
+                }
+                return Poll::Ready(Some(Ok(Output::Stdout(readbuf.filled().to_vec()))));
+            }
+            if let Poll::Ready(Err(_)) = stdout_poll {
+                *proj.stdout_closed = true;
+                *proj.stderr_closed = true;
+                return Poll::Ready(Some(Err(ProcessError {}))); //todo
+            }
         }
 
-        let stderr_poll = stderr.poll_read(cx, &mut readbuf);
+        if !*proj.stderr_closed {
+            let stderr_poll = stderr.poll_read(cx, &mut readbuf);
 
-        if let Poll::Ready(Ok(())) = stderr_poll {
-            return Poll::Ready(Some(Ok(Output::Stderr(readbuf.filled().to_vec()))));
+            if let Poll::Ready(Ok(())) = stderr_poll {
+                if readbuf.filled().len() == 0 {
+                    *proj.stderr_closed = true;
+                    if *proj.stdout_closed {
+                        return Poll::Ready(None);
+                    }
+                }
+                return Poll::Ready(Some(Ok(Output::Stderr(readbuf.filled().to_vec()))));
+            }
+            if let Poll::Ready(Err(_)) = stderr_poll {
+                *proj.stdout_closed = true;
+                *proj.stderr_closed = true;
+                return Poll::Ready(Some(Err(ProcessError {}))); //todo
+            }
         }
-        if let Poll::Ready(Err(_)) = stderr_poll {
-            return Poll::Ready(Some(Err(ProcessError {}))); //todo
+
+        if *proj.stdin_closed {
+            return Poll::Pending;
         }
 
         if let Some(v) = proj.tampon.take() {
-            return push_to_stdin(v, stdin, cx, proj.tampon);
+            return push_to_stdin(v, stdin, cx, proj.tampon, proj.stdin_closed);
         }
 
         if *proj.input_closed {
@@ -114,9 +147,10 @@ where
 
         let input_poll = input.poll_next(cx);
         if let Poll::Ready(Some(Ok(v))) = input_poll {
-            return push_to_stdin(v, stdin, cx, proj.tampon);
+            return push_to_stdin(v, stdin, cx, proj.tampon, proj.stdin_closed);
         }
         if let Poll::Ready(Some(Err(_))) = input_poll {
+            *proj.input_closed = true;
             return Poll::Ready(Some(Err(ProcessError {})));
         }
         if let Poll::Ready(None) = input_poll {
@@ -133,15 +167,22 @@ fn push_to_stdin<O>(
     stdin: Pin<&mut ChildStdin>,
     cx: &mut Context,
     tampon: &mut Option<Vec<u8>>,
+    stdin_closed: &mut bool,
 ) -> Poll<Option<Result<O, ProcessError>>> {
     match stdin.poll_write(cx, &mut v) {
         Poll::Ready(Ok(size)) => {
+            if size == 0 {
+                *stdin_closed = true;
+            }
             if size < v.len() {
                 *tampon = Some(v[size..].to_vec());
             }
             Poll::Pending
         }
-        Poll::Ready(Err(_)) => Poll::Ready(Some(Err(ProcessError {}))), //todo
+        Poll::Ready(Err(_)) => {
+            *stdin_closed = true;
+            Poll::Ready(Some(Err(ProcessError {}))) //todo
+        }
         Poll::Pending => {
             *tampon = Some(v);
             Poll::Pending
