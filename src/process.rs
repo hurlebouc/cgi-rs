@@ -104,7 +104,6 @@ where
 
             if let Poll::Ready(Err(_)) = stdout_poll {
                 *proj.stdout_closed = true;
-                *proj.stderr_closed = true;
                 println!("--> stdout gives error");
                 return Poll::Ready(Some(Err(ProcessError {}))); //todo
             }
@@ -115,21 +114,21 @@ where
                     return Poll::Ready(Some(Ok(Output::Stdout(Bytes::from(
                         readbuf.filled().to_vec(),
                     )))));
-                }
-
-                *proj.stdout_closed = true;
-                if *proj.stderr_closed {
-                    println!("--> stdout closed");
-                    return Poll::Ready(None);
+                } else {
+                    *proj.stdout_closed = true;
+                    if *proj.stderr_closed {
+                        println!("--> stdout closed");
+                        return Poll::Ready(None);
+                    }
                 }
             }
+            println!("--> No stdout ouput")
         }
 
         if !*proj.stderr_closed {
             let stderr_poll = stderr.poll_read(cx, &mut readbuf);
 
             if let Poll::Ready(Err(_)) = stderr_poll {
-                *proj.stdout_closed = true;
                 *proj.stderr_closed = true;
                 println!("--> stderr gives error");
                 return Poll::Ready(Some(Err(ProcessError {}))); //todo
@@ -141,14 +140,15 @@ where
                     return Poll::Ready(Some(Ok(Output::Stderr(Bytes::from(
                         readbuf.filled().to_vec(),
                     )))));
-                }
-
-                *proj.stderr_closed = true;
-                if *proj.stdout_closed {
-                    println!("--> stderr closed");
-                    return Poll::Ready(None);
+                } else {
+                    *proj.stderr_closed = true;
+                    if *proj.stdout_closed {
+                        println!("--> stderr closed");
+                        return Poll::Ready(None);
+                    }
                 }
             }
+            println!("--> No stderr ouput")
         }
 
         if *proj.stdin_closed {
@@ -161,25 +161,31 @@ where
             return push_to_stdin(v, stdin, cx, proj.input_buffer, proj.stdin_closed);
         }
 
-        if *proj.input_closed {
-            println!("--> input closed");
-            return Poll::Pending;
-        }
+        //if *proj.input_closed && *proj.stdin_closed {
+        //    println!("--> input and stdin are closed");
+        //    return Poll::Pending;
+        //}
 
-        let input_poll = input.poll_next(cx);
-        if let Poll::Ready(Some(Ok(v))) = input_poll {
-            println!("--> push_to_stdin(input)");
-            return push_to_stdin(v, stdin, cx, proj.input_buffer, proj.stdin_closed);
-        }
-        if let Poll::Ready(Some(Err(_))) = input_poll {
-            println!("--> input error");
-            *proj.input_closed = true;
-            return Poll::Ready(Some(Err(ProcessError {}))); //todo
-        }
-        if let Poll::Ready(None) = input_poll {
-            println!("--> input end");
-            *proj.input_closed = true;
-            return Poll::Pending;
+        if !*proj.input_closed {
+            let input_poll = input.poll_next(cx);
+            if let Poll::Ready(Some(Ok(v))) = input_poll {
+                println!("--> push_to_stdin(input)");
+                return push_to_stdin(v, stdin, cx, proj.input_buffer, proj.stdin_closed);
+            }
+            if let Poll::Ready(Some(Err(_))) = input_poll {
+                println!("--> input error");
+                *proj.input_closed = true;
+                return Poll::Ready(Some(Err(ProcessError {}))); //todo
+            }
+            if let Poll::Pending = input_poll {
+                println!("--> Wait for input");
+                return Poll::Pending;
+            }
+            if let Poll::Ready(None) = input_poll {
+                println!("--> input end");
+                *proj.input_closed = true;
+                //return Poll::Pending;
+            }
         }
 
         let stdin_close_poll = stdin.poll_shutdown(cx);
@@ -194,6 +200,7 @@ where
             return Poll::Ready(Some(Err(ProcessError {}))); //todo
         }
 
+        println!("--> default response");
         Poll::Pending
     }
 }
@@ -207,7 +214,7 @@ fn push_to_stdin<O>(
 ) -> Poll<Option<Result<O, ProcessError>>> {
     match stdin.poll_write(cx, &mut v) {
         Poll::Ready(Ok(size)) => {
-            println!("--> match Ready OK. size = {}", size);
+            println!("--> stdin accept. size = {}", size);
             if size == 0 {
                 *stdin_closed = true;
             }
@@ -289,11 +296,13 @@ mod process_stream_test {
     async fn read_input_test() {
         println!("read_input_test");
         let child = Command::new("cat")
+            .kill_on_drop(true)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
             .expect("failed to spawn");
+        //let input = stream::empty::<Result<Bytes, String>>();
         let input = stream::once(async { Ok::<Bytes, String>(Bytes::from("value".as_bytes())) });
         let process_stream = ProcessStream::new(child, input, 1024);
         let s = process_stream
@@ -303,6 +312,6 @@ mod process_stream_test {
                 s + &String::from_utf8_lossy(&b)
             })
             .await;
-        assert_eq!(s, "value\n")
+        assert_eq!(s, "value")
     }
 }
