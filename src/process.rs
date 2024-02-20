@@ -152,28 +152,46 @@ where
         }
 
         if *proj.stdin_closed {
+            println!("--> stdin closed");
             return Poll::Pending;
         }
 
         if let Some(v) = proj.input_buffer.take() {
+            println!("--> push_to_stdin(tampon)");
             return push_to_stdin(v, stdin, cx, proj.input_buffer, proj.stdin_closed);
         }
 
         if *proj.input_closed {
+            println!("--> input closed");
             return Poll::Pending;
         }
 
         let input_poll = input.poll_next(cx);
         if let Poll::Ready(Some(Ok(v))) = input_poll {
+            println!("--> push_to_stdin(input)");
             return push_to_stdin(v, stdin, cx, proj.input_buffer, proj.stdin_closed);
         }
         if let Poll::Ready(Some(Err(_))) = input_poll {
+            println!("--> input error");
             *proj.input_closed = true;
-            return Poll::Ready(Some(Err(ProcessError {})));
+            return Poll::Ready(Some(Err(ProcessError {}))); //todo
         }
         if let Poll::Ready(None) = input_poll {
+            println!("--> input end");
             *proj.input_closed = true;
             return Poll::Pending;
+        }
+
+        let stdin_close_poll = stdin.poll_shutdown(cx);
+        if let Poll::Ready(Ok(())) = stdin_close_poll {
+            println!("--> stdin shutdown");
+            *proj.stdin_closed = true;
+            return Poll::Pending;
+        }
+        if let Poll::Ready(Err(_)) = stdin_close_poll {
+            println!("--> stdin shutdown error");
+            *proj.stdin_closed = true;
+            return Poll::Ready(Some(Err(ProcessError {}))); //todo
         }
 
         Poll::Pending
