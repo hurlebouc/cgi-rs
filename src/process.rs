@@ -7,7 +7,7 @@ use bytes::Bytes;
 use futures::Stream;
 use pin_project::pin_project;
 use tokio::{
-    io::{AsyncRead, AsyncWrite, ReadBuf},
+    io::{AsyncRead, AsyncWrite, AsyncWriteExt, ReadBuf},
     process::{Child, ChildStderr, ChildStdin, ChildStdout},
 };
 
@@ -15,15 +15,14 @@ use tokio::{
 pub struct ProcessStream<I> {
     #[pin]
     input: I,
-    #[pin]
-    stdin: ChildStdin,
+    //#[pin]
+    stdin: Option<ChildStdin>,
     #[pin]
     stdout: ChildStdout,
     #[pin]
     stderr: ChildStderr,
     input_buffer: Option<Bytes>,
     input_closed: bool,
-    stdin_closed: bool,
     stdout_closed: bool,
     stderr_closed: bool,
     output_buffer_size: usize,
@@ -63,12 +62,11 @@ impl<I> ProcessStream<I> {
     pub fn new(mut child: Child, input: I, output_buffer_size: usize) -> ProcessStream<I> {
         ProcessStream {
             input,
-            stdin: child.stdin.take().expect("Child stdin must be piped"),
+            stdin: Some(child.stdin.take().expect("Child stdin must be piped")),
             stdout: child.stdout.take().expect("Child stdout must be piped"),
             stderr: child.stderr.take().expect("Child stderr must be piped"),
             input_buffer: None,
             input_closed: false,
-            stdin_closed: false,
             stdout_closed: false,
             stderr_closed: false,
             output_buffer_size,
@@ -93,7 +91,6 @@ where
         }
 
         let input = proj.input;
-        let stdin = proj.stdin;
         let stdout = proj.stdout;
         let stderr = proj.stderr;
         let mut buf_vec = vec![0; *proj.output_buffer_size];
@@ -151,54 +148,52 @@ where
             println!("--> No stderr ouput")
         }
 
-        if *proj.stdin_closed {
-            println!("--> stdin closed");
-            return Poll::Pending;
-        }
-
-        if let Some(v) = proj.input_buffer.take() {
-            println!("--> push_to_stdin(tampon)");
-            return push_to_stdin(v, stdin, cx, proj.input_buffer, proj.stdin_closed);
+        if let Some(mut stdin) = proj.stdin.take() {
+            let new_stdin: Option<ChildStdin>;
+            let poll: Poll<Option<Self::Item>>;
+            if let Some(v) = proj.input_buffer.take() {
+                println!("--> push_to_stdin(tampon)");
+                let (p, delete_stdin) = push_to_stdin(v, &mut stdin, cx, proj.input_buffer);
+                new_stdin = if delete_stdin { None } else { Some(stdin) };
+                poll = p;
+            } else if !*proj.input_closed {
+                let input_poll = input.poll_next(cx);
+                if let Poll::Ready(Some(Ok(v))) = input_poll {
+                    println!("--> push_to_stdin(input)");
+                    let (p, delete_stdin) = push_to_stdin(v, &mut stdin, cx, proj.input_buffer);
+                    new_stdin = if delete_stdin { None } else { Some(stdin) };
+                    poll = p;
+                } else if let Poll::Ready(Some(Err(_))) = input_poll {
+                    println!("--> input error");
+                    *proj.input_closed = true;
+                    new_stdin = Some(stdin);
+                    poll = Poll::Ready(Some(Err(ProcessError {}))); //todo
+                } else if let Poll::Pending = input_poll {
+                    println!("--> Wait for input");
+                    new_stdin = Some(stdin);
+                    poll = Poll::Pending;
+                } else if let Poll::Ready(None) = input_poll {
+                    println!("--> input end");
+                    *proj.input_closed = true;
+                    *proj.stdin = None;
+                    new_stdin = None;
+                    poll = Poll::Pending;
+                } else {
+                    new_stdin = Some(stdin);
+                    poll = Poll::Pending;
+                }
+            } else {
+                new_stdin = Some(stdin);
+                poll = Poll::Pending;
+            }
+            *proj.stdin = new_stdin;
+            return poll;
         }
 
         //if *proj.input_closed && *proj.stdin_closed {
         //    println!("--> input and stdin are closed");
         //    return Poll::Pending;
         //}
-
-        if !*proj.input_closed {
-            let input_poll = input.poll_next(cx);
-            if let Poll::Ready(Some(Ok(v))) = input_poll {
-                println!("--> push_to_stdin(input)");
-                return push_to_stdin(v, stdin, cx, proj.input_buffer, proj.stdin_closed);
-            }
-            if let Poll::Ready(Some(Err(_))) = input_poll {
-                println!("--> input error");
-                *proj.input_closed = true;
-                return Poll::Ready(Some(Err(ProcessError {}))); //todo
-            }
-            if let Poll::Pending = input_poll {
-                println!("--> Wait for input");
-                return Poll::Pending;
-            }
-            if let Poll::Ready(None) = input_poll {
-                println!("--> input end");
-                *proj.input_closed = true;
-                //return Poll::Pending;
-            }
-        }
-
-        let stdin_close_poll = stdin.poll_shutdown(cx);
-        if let Poll::Ready(Ok(())) = stdin_close_poll {
-            println!("--> stdin shutdown");
-            *proj.stdin_closed = true;
-            return Poll::Pending;
-        }
-        if let Poll::Ready(Err(_)) = stdin_close_poll {
-            println!("--> stdin shutdown error");
-            *proj.stdin_closed = true;
-            return Poll::Ready(Some(Err(ProcessError {}))); //todo
-        }
 
         println!("--> default response");
         Poll::Pending
@@ -207,31 +202,32 @@ where
 
 fn push_to_stdin<O>(
     mut v: Bytes,
-    stdin: Pin<&mut ChildStdin>,
+    stdin: &mut ChildStdin,
     cx: &mut Context,
     tampon: &mut Option<Bytes>,
-    stdin_closed: &mut bool,
-) -> Poll<Option<Result<O, ProcessError>>> {
-    match stdin.poll_write(cx, &mut v) {
+) -> (Poll<Option<Result<O, ProcessError>>>, bool) {
+    match Pin::new(stdin).poll_write(cx, &mut v) {
         Poll::Ready(Ok(size)) => {
             println!("--> stdin accept. size = {}", size);
+            let delete_stdin: bool;
             if size == 0 {
-                *stdin_closed = true;
+                delete_stdin = true;
+            } else {
+                delete_stdin = false;
             }
             if size < v.len() {
                 *tampon = Some(v.slice(size..));
             }
-            Poll::Pending
+            (Poll::Pending, delete_stdin)
         }
         Poll::Ready(Err(_)) => {
             println!("--> Error while writing to stdin");
-            *stdin_closed = true;
-            Poll::Ready(Some(Err(ProcessError {}))) //todo
+            (Poll::Ready(Some(Err(ProcessError {}))), true) //todo
         }
         Poll::Pending => {
             println!("--> stdin pending");
             *tampon = Some(v);
-            Poll::Pending
+            (Poll::Pending, false)
         }
     }
 }
