@@ -189,13 +189,15 @@ impl PSStatus {
                 println!("--> stdin accept. size = {}", size);
                 if size == 0 {
                     self.stdin = None;
+                    Poll::Pending
+                } else {
+                    if size < v.len() {
+                        self.input_buffer = Some(v.slice(size..));
+                    }
+                    self.flush_stdin(cx)
                 }
-                if size < v.len() {
-                    self.input_buffer = Some(v.slice(size..));
-                }
-                Poll::Pending
             }
-            Poll::Ready(Err(_)) => {
+            Poll::Ready(Err(todo)) => {
                 self.stdin = None;
                 Poll::Ready(Some(Err(ProcessError {}))) //todo
             }
@@ -203,6 +205,18 @@ impl PSStatus {
                 self.input_buffer = Some(v);
                 Poll::Pending
             }
+        }
+    }
+
+    fn flush_stdin<O>(&mut self, cx: &mut Context<'_>) -> Poll<Option<Result<O, ProcessError>>> {
+        let stdin = self.stdin.as_mut().unwrap();
+        match Pin::new(stdin).poll_flush(cx) {
+            Poll::Ready(Ok(())) => Poll::Pending,
+            Poll::Ready(Err(todo)) => {
+                self.stdin = None;
+                Poll::Ready(Some(Err(ProcessError {}))) //todo
+            }
+            Poll::Pending => Poll::Pending,
         }
     }
 }
