@@ -81,7 +81,6 @@ dependencies = [
  "hyper",
  "hyper-util",
  "log",
- "pin-project",
  "regex",
  "tokio",
 ]
