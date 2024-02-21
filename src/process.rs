@@ -15,11 +15,7 @@ use tokio::{
 pub struct ProcessStream<I> {
     #[pin]
     input: I,
-    stdin: Option<ChildStdin>,
-    stdout: Option<ChildStdout>,
-    stderr: Option<ChildStderr>,
-    input_buffer: Option<Bytes>,
-    input_closed: bool,
+    status: PSStatus,
     output_buffer_size: usize,
     child: Child, // keep reference to child process in order not to drop it before dropping the ProcessStream
 }
@@ -65,11 +61,13 @@ impl<I> ProcessStream<I> {
     pub fn new(mut child: Child, input: I, output_buffer_size: usize) -> ProcessStream<I> {
         ProcessStream {
             input,
-            stdin: Some(child.stdin.take().expect("Child stdin must be piped")),
-            stdout: Some(child.stdout.take().expect("Child stdout must be piped")),
-            stderr: Some(child.stderr.take().expect("Child stderr must be piped")),
-            input_buffer: None,
-            input_closed: false,
+            status: PSStatus {
+                stdin: Some(child.stdin.take().expect("Child stdin must be piped")),
+                stdout: Some(child.stdout.take().expect("Child stdout must be piped")),
+                stderr: Some(child.stderr.take().expect("Child stderr must be piped")),
+                input_buffer: None,
+                input_closed: false,
+            },
             output_buffer_size,
             child,
         }
@@ -77,11 +75,11 @@ impl<I> ProcessStream<I> {
 }
 
 impl PSStatus {
-    fn next_step<E>(
+    fn next_stdout<E>(
         &mut self,
         cx: &mut Context<'_>,
         output_buffer_size: usize,
-        poll_input: impl FnOnce() -> Poll<Option<Result<Bytes, E>>>,
+        poll_input: impl FnOnce(&mut Context<'_>) -> Poll<Option<Result<Bytes, E>>>,
     ) -> Poll<Option<Result<Output, ProcessError>>> {
         let mut buf_vec = vec![0; output_buffer_size];
         let mut readbuf = ReadBuf::new(&mut buf_vec);
@@ -108,7 +106,7 @@ impl PSStatus {
         &mut self,
         cx: &mut Context<'_>,
         output_buffer_size: usize,
-        poll_input: impl FnOnce() -> Poll<Option<Result<Bytes, E>>>,
+        poll_input: impl FnOnce(&mut Context<'_>) -> Poll<Option<Result<Bytes, E>>>,
     ) -> Poll<Option<Result<Output, ProcessError>>> {
         let mut buf_vec = vec![0; output_buffer_size];
         let mut readbuf = ReadBuf::new(&mut buf_vec);
@@ -125,19 +123,19 @@ impl PSStatus {
                             self.stdin = None;
                             Poll::Ready(None)
                         } else {
-                            self.next_stdin(cx, output_buffer_size, poll_input)
+                            self.next_stdin(cx, poll_input)
                         }
                     }
                 }
                 Poll::Ready(Err(todo)) => Poll::Ready(Some(Err(ProcessError {}))),
-                Poll::Pending => self.next_stdin(cx, output_buffer_size, poll_input),
+                Poll::Pending => self.next_stdin(cx, poll_input),
             },
             None => {
                 if self.stdout.is_none() {
                     self.stdin = None;
                     Poll::Ready(None)
                 } else {
-                    self.next_stdin(cx, output_buffer_size, poll_input)
+                    self.next_stdin(cx, poll_input)
                 }
             }
         }
@@ -146,16 +144,30 @@ impl PSStatus {
     fn next_stdin<E>(
         &mut self,
         cx: &mut Context<'_>,
-        output_buffer_size: usize,
-        poll_input: impl FnOnce() -> Poll<Option<Result<Bytes, E>>>,
+        poll_input: impl FnOnce(&mut Context<'_>) -> Poll<Option<Result<Bytes, E>>>,
     ) -> Poll<Option<Result<Output, ProcessError>>> {
         match &mut self.stdin {
             Some(stdin) => match self.input_buffer.take() {
                 Some(v) => self.push_to_stdin(v, cx),
-                None => match poll_input() {
-                    Poll::Ready(_) => todo!(),
-                    Poll::Pending => todo!(),
-                },
+                None => {
+                    if !self.input_closed {
+                        match poll_input(cx) {
+                            Poll::Ready(Some(Ok(v))) => self.push_to_stdin(v, cx),
+                            Poll::Ready(Some(Err(todo))) => {
+                                self.stdin = None;
+                                // todo : logger quelque chose
+                                Poll::Pending
+                            }
+                            Poll::Ready(None) => {
+                                self.stdin = None;
+                                Poll::Pending
+                            }
+                            Poll::Pending => Poll::Pending,
+                        }
+                    } else {
+                        Poll::Pending
+                    }
+                }
             },
             None => {
                 self.input_closed = true;
@@ -202,56 +214,8 @@ where
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         println!("poll_next");
         let proj = self.project();
-
-        if let Some(mut stdin) = proj.stdin.take() {
-            let new_stdin: Option<ChildStdin>;
-            let poll: Poll<Option<Self::Item>>;
-            if let Some(v) = proj.input_buffer.take() {
-                println!("--> push_to_stdin(tampon)");
-                let (p, delete_stdin) = push_to_stdin(v, &mut stdin, cx, proj.input_buffer);
-                new_stdin = if delete_stdin { None } else { Some(stdin) };
-                poll = p;
-            } else if !*proj.input_closed {
-                let input_poll = proj.input.poll_next(cx);
-                if let Poll::Ready(Some(Ok(v))) = input_poll {
-                    println!("--> push_to_stdin(input)");
-                    let (p, delete_stdin) = push_to_stdin(v, &mut stdin, cx, proj.input_buffer);
-                    new_stdin = if delete_stdin { None } else { Some(stdin) };
-                    poll = p;
-                } else if let Poll::Ready(Some(Err(_))) = input_poll {
-                    println!("--> input error");
-                    *proj.input_closed = true;
-                    new_stdin = Some(stdin);
-                    poll = Poll::Ready(Some(Err(ProcessError {}))); //todo
-                } else if let Poll::Pending = input_poll {
-                    println!("--> Wait for input");
-                    new_stdin = Some(stdin);
-                    poll = Poll::Pending;
-                } else if let Poll::Ready(None) = input_poll {
-                    println!("--> input end");
-                    *proj.input_closed = true;
-                    *proj.stdin = None;
-                    new_stdin = None;
-                    poll = Poll::Pending;
-                } else {
-                    new_stdin = Some(stdin);
-                    poll = Poll::Pending;
-                }
-            } else {
-                new_stdin = Some(stdin);
-                poll = Poll::Pending;
-            }
-            *proj.stdin = new_stdin;
-            return poll;
-        }
-
-        //if *proj.input_closed && *proj.stdin_closed {
-        //    println!("--> input and stdin are closed");
-        //    return Poll::Pending;
-        //}
-
-        println!("--> default response");
-        Poll::Pending
+        let status = proj.status;
+        status.next_stdout(cx, *proj.output_buffer_size, |cx| proj.input.poll_next(cx))
     }
 }
 
