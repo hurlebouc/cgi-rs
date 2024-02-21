@@ -7,7 +7,7 @@ use bytes::Bytes;
 use futures::Stream;
 use pin_project::pin_project;
 use tokio::{
-    io::{AsyncRead, AsyncWrite, AsyncWriteExt, ReadBuf},
+    io::{AsyncRead, AsyncWrite, ReadBuf},
     process::{Child, ChildStderr, ChildStdin, ChildStdout},
 };
 
@@ -114,7 +114,7 @@ impl PSStatus {
             Some(stderr) => match Pin::new(stderr).poll_read(cx, &mut readbuf) {
                 Poll::Ready(Ok(())) => {
                     if readbuf.filled().len() != 0 {
-                        Poll::Ready(Some(Ok(Output::Stdout(Bytes::from(
+                        Poll::Ready(Some(Ok(Output::Stderr(Bytes::from(
                             readbuf.filled().to_vec(),
                         )))))
                     } else {
@@ -147,7 +147,7 @@ impl PSStatus {
         poll_input: impl FnOnce(&mut Context<'_>) -> Poll<Option<Result<Bytes, E>>>,
     ) -> Poll<Option<Result<Output, ProcessError>>> {
         match &mut self.stdin {
-            Some(stdin) => match self.input_buffer.take() {
+            Some(_) => match self.input_buffer.take() {
                 Some(v) => self.push_to_stdin(v, cx),
                 None => {
                     if !self.input_closed {
@@ -155,11 +155,13 @@ impl PSStatus {
                             Poll::Ready(Some(Ok(v))) => self.push_to_stdin(v, cx),
                             Poll::Ready(Some(Err(todo))) => {
                                 self.stdin = None;
+                                self.input_closed = true;
                                 // todo : logger quelque chose
                                 Poll::Pending
                             }
                             Poll::Ready(None) => {
                                 self.stdin = None;
+                                self.input_closed = true;
                                 Poll::Pending
                             }
                             Poll::Pending => Poll::Pending,
