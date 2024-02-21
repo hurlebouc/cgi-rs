@@ -77,10 +77,11 @@ impl<I> ProcessStream<I> {
 }
 
 impl PSStatus {
-    fn next_step(
+    fn next_step<E>(
         &mut self,
         cx: &mut Context<'_>,
         output_buffer_size: usize,
+        poll_input: impl FnOnce() -> Poll<Option<Result<Bytes, E>>>,
     ) -> Poll<Option<Result<Output, ProcessError>>> {
         let mut buf_vec = vec![0; output_buffer_size];
         let mut readbuf = ReadBuf::new(&mut buf_vec);
@@ -93,20 +94,21 @@ impl PSStatus {
                         )))))
                     } else {
                         self.stdout = None;
-                        self.next_stderr(cx, output_buffer_size)
+                        self.next_stderr(cx, output_buffer_size, poll_input)
                     }
                 }
                 Poll::Ready(Err(todo)) => Poll::Ready(Some(Err(ProcessError {}))),
-                Poll::Pending => self.next_stderr(cx, output_buffer_size),
+                Poll::Pending => self.next_stderr(cx, output_buffer_size, poll_input),
             },
-            None => self.next_stderr(cx, output_buffer_size),
+            None => self.next_stderr(cx, output_buffer_size, poll_input),
         }
     }
 
-    fn next_stderr(
+    fn next_stderr<E>(
         &mut self,
         cx: &mut Context<'_>,
         output_buffer_size: usize,
+        poll_input: impl FnOnce() -> Poll<Option<Result<Bytes, E>>>,
     ) -> Poll<Option<Result<Output, ProcessError>>> {
         let mut buf_vec = vec![0; output_buffer_size];
         let mut readbuf = ReadBuf::new(&mut buf_vec);
@@ -123,20 +125,69 @@ impl PSStatus {
                             self.stdin = None;
                             Poll::Ready(None)
                         } else {
-                            todo!()
+                            self.next_stdin(cx, output_buffer_size, poll_input)
                         }
                     }
                 }
                 Poll::Ready(Err(todo)) => Poll::Ready(Some(Err(ProcessError {}))),
-                Poll::Pending => todo!(),
+                Poll::Pending => self.next_stdin(cx, output_buffer_size, poll_input),
             },
             None => {
                 if self.stdout.is_none() {
                     self.stdin = None;
                     Poll::Ready(None)
                 } else {
-                    todo!()
+                    self.next_stdin(cx, output_buffer_size, poll_input)
                 }
+            }
+        }
+    }
+
+    fn next_stdin<E>(
+        &mut self,
+        cx: &mut Context<'_>,
+        output_buffer_size: usize,
+        poll_input: impl FnOnce() -> Poll<Option<Result<Bytes, E>>>,
+    ) -> Poll<Option<Result<Output, ProcessError>>> {
+        match &mut self.stdin {
+            Some(stdin) => match self.input_buffer.take() {
+                Some(v) => self.push_to_stdin(v, cx),
+                None => match poll_input() {
+                    Poll::Ready(_) => todo!(),
+                    Poll::Pending => todo!(),
+                },
+            },
+            None => {
+                self.input_closed = true;
+                Poll::Pending
+            }
+        }
+    }
+
+    fn push_to_stdin<O>(
+        &mut self,
+        mut v: Bytes,
+        cx: &mut Context,
+    ) -> Poll<Option<Result<O, ProcessError>>> {
+        let stdin = self.stdin.as_mut().unwrap();
+        match Pin::new(stdin).poll_write(cx, &mut v) {
+            Poll::Ready(Ok(size)) => {
+                println!("--> stdin accept. size = {}", size);
+                if size == 0 {
+                    self.stdin = None;
+                }
+                if size < v.len() {
+                    self.input_buffer = Some(v.slice(size..));
+                }
+                Poll::Pending
+            }
+            Poll::Ready(Err(_)) => {
+                self.stdin = None;
+                Poll::Ready(Some(Err(ProcessError {}))) //todo
+            }
+            Poll::Pending => {
+                self.input_buffer = Some(v);
+                Poll::Pending
             }
         }
     }
