@@ -219,38 +219,6 @@ where
     }
 }
 
-fn push_to_stdin<O>(
-    mut v: Bytes,
-    stdin: &mut ChildStdin,
-    cx: &mut Context,
-    tampon: &mut Option<Bytes>,
-) -> (Poll<Option<Result<O, ProcessError>>>, bool) {
-    match Pin::new(stdin).poll_write(cx, &mut v) {
-        Poll::Ready(Ok(size)) => {
-            println!("--> stdin accept. size = {}", size);
-            let delete_stdin: bool;
-            if size == 0 {
-                delete_stdin = true;
-            } else {
-                delete_stdin = false;
-            }
-            if size < v.len() {
-                *tampon = Some(v.slice(size..));
-            }
-            (Poll::Pending, delete_stdin)
-        }
-        Poll::Ready(Err(_)) => {
-            println!("--> Error while writing to stdin");
-            (Poll::Ready(Some(Err(ProcessError {}))), true) //todo
-        }
-        Poll::Pending => {
-            println!("--> stdin pending");
-            *tampon = Some(v);
-            (Poll::Pending, false)
-        }
-    }
-}
-
 #[cfg(test)]
 mod process_stream_test {
     use std::process::Stdio;
