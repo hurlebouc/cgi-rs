@@ -186,7 +186,6 @@ impl PSStatus {
         let stdin = self.stdin.as_mut().unwrap();
         match Pin::new(stdin).poll_write(cx, &mut v) {
             Poll::Ready(Ok(size)) => {
-                println!("--> stdin accept. size = {}", size);
                 if size == 0 {
                     self.stdin = None;
                     Poll::Pending
