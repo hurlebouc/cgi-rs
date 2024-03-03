@@ -14,3 +14,4 @@ regex = "1.10.3"
 futures = "0.3.30"
 log = "0.4.20"
 bytes = "1.5.0"
+hershell = {git = "https://forge.poipoi.org/hubert/hershell.git", branch = "master"}

@@ -1,8 +1,9 @@
 use std::{
-    borrow::Cow, collections::HashMap, convert::Infallible, net::SocketAddr, path::Path,
-    process::Stdio,
+    borrow::Cow, collections::HashMap, convert::Infallible, future::ready, net::SocketAddr,
+    path::Path, process::Stdio,
 };
 
+use hershell::process;
 use http_body_util::{combinators::Frame, BodyStream, Full, StreamBody};
 use hyper::{
     body::{self, Body, Bytes, Incoming},
@@ -205,7 +206,9 @@ impl Script {
         let cwd: &str = &cwd_cow;
         let path: &str = &path_cow;
 
-        let body = BodyStream::new(req.into_body());
+        let body = BodyStream::new(req.into_body())
+            .try_filter(|f| ready(f.is_data()))
+            .map(|f| f.map(|o| o.into_data().unwrap()));
 
         let child_opt = Command::new(path)
             .kill_on_drop(true)
@@ -220,28 +223,13 @@ impl Script {
         if let Err(err) = child_opt {
             return Ok(getErrorResponse(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Cannot run cgi exectuable with error: {}", err),
+                format!("Cannot run cgi executable with error: {}", err),
             ));
         }
 
-        let mut child = child_opt.unwrap();
-        let stdin_opt = child.stdin.take();
+        let child = child_opt.unwrap();
 
-        if let None = stdin_opt {
-            return Ok(getErrorResponse(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Cannot get child stdin"),
-            ));
-        }
-
-        let stdin = stdin_opt.unwrap();
-
-        let join_input = tokio::spawn(feed_stdin(stdin, body));
-
-        match tokio::try_join!(flatten_join_handle(join_input)) {
-            Ok(((),)) => {}
-            Err(err) => return Ok(getErrorResponse(StatusCode::INTERNAL_SERVER_ERROR, err)),
-        }
+        let mut process_stream = process::new_process_typed(child, body, 1024);
 
         todo!()
     }
