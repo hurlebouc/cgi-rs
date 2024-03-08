@@ -3,7 +3,7 @@ use std::{
     path::Path, process::Stdio,
 };
 
-use hershell::process;
+use hershell::process::{self, ProcStreamExt};
 use http_body_util::{combinators::Frame, BodyStream, Full, StreamBody};
 use hyper::{
     body::{self, Body, Bytes, Incoming},
@@ -12,12 +12,13 @@ use hyper::{
 };
 use log::error;
 use tokio::{
-    io::AsyncWriteExt,
+    io::{AsyncBufReadExt, AsyncWriteExt},
     process::{ChildStdin, ChildStdout, Command},
     task::JoinHandle,
 };
 
 use futures::{Stream, StreamExt, TryStreamExt};
+use tokio_util::io::{ReaderStream, StreamReader};
 
 struct Script {
     // Path to the CGI executable
@@ -51,7 +52,7 @@ impl Script {
 
         if let Some(encoding) = req.headers().get(TRANSFER_ENCODING) {
             if encoding == "chunked" {
-                return Ok(getErrorResponse(
+                return Ok(get_error_response(
                     StatusCode::BAD_REQUEST,
                     "Chunked encoding is not supported by CGI.".to_string(),
                 ));
@@ -72,7 +73,7 @@ impl Script {
         if let Some(host) = req.headers().get(HOST) {
             if let Ok(host) = host.to_str() {
                 env.insert("HTTP_HOST".to_string(), host.to_string());
-                if let Some((hostname, port)) = getHostPort(host) {
+                if let Some((hostname, port)) = get_host_port(host) {
                     env.insert("SERVER_NAME".to_string(), hostname.to_string());
                     env.insert("SERVER_PORT".to_string(), port.to_string());
                 } else {
@@ -196,7 +197,7 @@ impl Script {
             if let Some(filename) = p.file_name() {
                 path_cow = filename.to_string_lossy();
             } else {
-                return Ok(getErrorResponse(
+                return Ok(get_error_response(
                     StatusCode::INTERNAL_SERVER_ERROR,
                     format!("Cannot use {} as path", &self.path),
                 ));
@@ -207,8 +208,8 @@ impl Script {
         let path: &str = &path_cow;
 
         let body = BodyStream::new(req.into_body())
-            .try_filter(|f| ready(f.is_data()))
-            .map(|f| f.map(|o| o.into_data().unwrap()));
+            .try_filter_map(|f| ready(Ok(f.into_data().ok())))
+            .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err));
 
         let child_opt = Command::new(path)
             .kill_on_drop(true)
@@ -221,7 +222,7 @@ impl Script {
             .spawn();
 
         if let Err(err) = child_opt {
-            return Ok(getErrorResponse(
+            return Ok(get_error_response(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 format!("Cannot run cgi executable with error: {}", err),
             ));
@@ -229,13 +230,26 @@ impl Script {
 
         let child = child_opt.unwrap();
 
-        let mut process_stream = process::new_process_typed(child, body, 1024);
+        let process_stream = process::new_process_typed(child, body, 1024).stdout();
+
+        let mut process_reader = StreamReader::new(process_stream);
+
+        let mut line = String::new();
+
+        loop {
+            match process_reader.read_line(&mut line).await {
+                Ok(_) => todo!(),
+                Err(_) => todo!(),
+            }
+        }
+
+        let remaining_stream = ReaderStream::new(process_reader);
 
         todo!()
     }
 }
 
-fn getHostPort(value: &str) -> Option<(&str, u16)> {
+fn get_host_port(value: &str) -> Option<(&str, u16)> {
     let split: Vec<&str> = value.split(":").collect();
     if split.len() == 2 {
         Some((split.get(0)?, split.get(1)?.parse().ok()?))
@@ -244,7 +258,7 @@ fn getHostPort(value: &str) -> Option<(&str, u16)> {
     }
 }
 
-fn getErrorResponse(code: impl Into<StatusCode>, msg: String) -> Response<Full<Bytes>> {
+fn get_error_response(code: impl Into<StatusCode>, msg: String) -> Response<Full<Bytes>> {
     Response::builder()
         .status(code)
         .body(Full::new(Bytes::from(msg)))
