@@ -4,7 +4,7 @@ use std::{
 };
 
 use hershell::process::{self, ProcStreamExt};
-use http_body_util::{combinators::BoxBody, BodyStream, Full, StreamBody};
+use http_body_util::{combinators::BoxBody, BodyExt, BodyStream, Full, StreamBody};
 use hyper::{
     body::{Bytes, Frame, Incoming},
     header::{CONTENT_LENGTH, CONTENT_TYPE, HOST, TRANSFER_ENCODING},
@@ -52,7 +52,7 @@ impl Script {
 
         if let Some(encoding) = req.headers().get(TRANSFER_ENCODING) {
             if encoding == "chunked" {
-                return Ok(get_error_response_stream(
+                return Ok(get_error_response(
                     StatusCode::BAD_REQUEST,
                     "Chunked encoding is not supported by CGI.".to_string(),
                 ));
@@ -197,7 +197,7 @@ impl Script {
             if let Some(filename) = p.file_name() {
                 path_cow = filename.to_string_lossy();
             } else {
-                return Ok(get_error_response_stream(
+                return Ok(get_error_response(
                     StatusCode::INTERNAL_SERVER_ERROR,
                     format!("Cannot use {} as path", &self.path),
                 ));
@@ -222,7 +222,7 @@ impl Script {
             .spawn();
 
         if let Err(err) = child_opt {
-            return Ok(get_error_response_stream(
+            return Ok(get_error_response(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 format!("Cannot run cgi executable with error: {}", err),
             ));
@@ -262,13 +262,12 @@ fn get_host_port(value: &str) -> Option<(&str, u16)> {
     }
 }
 
-fn get_error_response(
-    code: impl Into<StatusCode>,
-    msg: String,
-) -> Response<BoxBody<Bytes, Infallible>> {
+fn get_error_response<E>(code: impl Into<StatusCode>, msg: String) -> Response<BoxBody<Bytes, E>> {
     Response::builder()
         .status(code)
-        .body(BoxBody::new(Full::new(Bytes::from(msg))))
+        .body(BoxBody::new(
+            Full::new(Bytes::from(msg)).map_err(|never| unreachable!()),
+        ))
         .unwrap()
 }
 
