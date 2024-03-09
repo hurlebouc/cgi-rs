@@ -236,12 +236,96 @@ impl Script {
 
         let mut line = String::new();
 
-        let response_builder = Response::builder();
+        let mut response_builder = Response::builder();
+
+        let mut has_header = false;
+        let mut status_code = None;
+        let mut has_location_header = false;
+        let mut has_content_type = false;
 
         loop {
             match process_reader.read_line(&mut line).await {
-                Ok(_) => todo!(),
-                Err(_) => todo!(),
+                Ok(size) => {
+                    if size == 0 {
+                        break;
+                    }
+                    has_header = true;
+                    let line = line.trim();
+                    if line.len() == 0 {
+                        // end of headers
+                        break;
+                    }
+                    if let Some((k, v)) = line.split_once(":") {
+                        let (k, v) = (k.trim(), v.trim());
+                        if k == "Status" {
+                            match v.parse::<u16>() {
+                                Ok(code) => {
+                                    status_code = match StatusCode::from_u16(code) {
+                                        Ok(code) => Some(code),
+                                        Err(err) => {
+                                            return Ok(get_error_response(
+                                                StatusCode::INTERNAL_SERVER_ERROR,
+                                                format!(
+                                                    "Unknown code {} with error: {}",
+                                                    code, err
+                                                ),
+                                            ))
+                                        }
+                                    };
+                                }
+                                Err(err) => {
+                                    return Ok(get_error_response(
+                                        StatusCode::INTERNAL_SERVER_ERROR,
+                                        format!("Cannot read status {} with error: {}", v, err),
+                                    ))
+                                }
+                            }
+                        } else {
+                            response_builder = response_builder.header(k, v);
+                        }
+                        if k == "Location" && v != "" {
+                            has_location_header = true;
+                        }
+                        if k == "Content-Type" && v != "" {
+                            has_content_type = true;
+                        }
+                    } else {
+                        // bad header line
+                    }
+                }
+                Err(err) => {
+                    return Ok(get_error_response(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        format!("Cannot read header with error: {}", err),
+                    ))
+                }
+            }
+        }
+
+        if !has_header {
+            return Ok(get_error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("No header read"),
+            ));
+        }
+
+        if has_location_header && status_code.is_none() {
+            status_code = Some(StatusCode::FOUND);
+        }
+
+        if !has_content_type && status_code.is_none() {
+            return Ok(get_error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Missing required Content-Type header"),
+            ));
+        }
+
+        match status_code {
+            Some(code) => {
+                response_builder = response_builder.status(code);
+            }
+            None => {
+                response_builder = response_builder.status(StatusCode::OK);
             }
         }
 
