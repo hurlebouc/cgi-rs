@@ -8,6 +8,7 @@ use http_body_util::{combinators::BoxBody, BodyExt, BodyStream, Full, StreamBody
 use hyper::{
     body::{Bytes, Frame, Incoming},
     header::{CONTENT_LENGTH, CONTENT_TYPE, HOST, TRANSFER_ENCODING},
+    service::{service_fn, Service},
     Request, Response, StatusCode,
 };
 
@@ -43,7 +44,11 @@ struct Script {
 }
 
 impl Script {
-    pub async fn server(
+    fn service<'a>(&'a self) -> impl Service<Request<Incoming>> + 'a {
+        service_fn(|req| self.server(req, todo!()))
+    }
+
+    async fn server(
         &self,
         req: Request<Incoming>,
         remote: &SocketAddr,
