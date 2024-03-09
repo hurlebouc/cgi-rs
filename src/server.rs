@@ -4,20 +4,20 @@ use std::{
 };
 
 use hershell::process::{self, ProcStreamExt};
-use http_body_util::{combinators::Frame, BodyStream, Full, StreamBody};
+use http_body_util::{combinators::BoxBody, BodyStream, Full, StreamBody};
 use hyper::{
-    body::{self, Body, Bytes, Incoming},
-    header::{HeaderValue, CONTENT_LENGTH, CONTENT_TYPE, HOST, TRANSFER_ENCODING},
+    body::{Bytes, Frame, Incoming},
+    header::{CONTENT_LENGTH, CONTENT_TYPE, HOST, TRANSFER_ENCODING},
     Request, Response, StatusCode,
 };
-use log::error;
+
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt},
-    process::{ChildStdin, ChildStdout, Command},
+    process::{ChildStdin, Command},
     task::JoinHandle,
 };
 
-use futures::{Stream, StreamExt, TryStreamExt};
+use futures::{stream, Stream, StreamExt, TryStreamExt};
 use tokio_util::io::{ReaderStream, StreamReader};
 
 struct Script {
@@ -47,12 +47,12 @@ impl Script {
         &self,
         req: Request<Incoming>,
         remote: &SocketAddr,
-    ) -> Result<Response<Full<Bytes>>, Infallible> {
+    ) -> Result<Response<BoxBody<Bytes, std::io::Error>>, Infallible> {
         let root = if self.root == "" { "/" } else { &self.root };
 
         if let Some(encoding) = req.headers().get(TRANSFER_ENCODING) {
             if encoding == "chunked" {
-                return Ok(get_error_response(
+                return Ok(get_error_response_stream(
                     StatusCode::BAD_REQUEST,
                     "Chunked encoding is not supported by CGI.".to_string(),
                 ));
@@ -197,7 +197,7 @@ impl Script {
             if let Some(filename) = p.file_name() {
                 path_cow = filename.to_string_lossy();
             } else {
-                return Ok(get_error_response(
+                return Ok(get_error_response_stream(
                     StatusCode::INTERNAL_SERVER_ERROR,
                     format!("Cannot use {} as path", &self.path),
                 ));
@@ -222,7 +222,7 @@ impl Script {
             .spawn();
 
         if let Err(err) = child_opt {
-            return Ok(get_error_response(
+            return Ok(get_error_response_stream(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 format!("Cannot run cgi executable with error: {}", err),
             ));
@@ -236,6 +236,8 @@ impl Script {
 
         let mut line = String::new();
 
+        let response_builder = Response::builder();
+
         loop {
             match process_reader.read_line(&mut line).await {
                 Ok(_) => todo!(),
@@ -243,9 +245,11 @@ impl Script {
             }
         }
 
-        let remaining_stream = ReaderStream::new(process_reader);
+        let remaining_stream = ReaderStream::new(process_reader).map_ok(|bytes| Frame::data(bytes));
 
-        todo!()
+        Ok(response_builder
+            .body(BoxBody::new(StreamBody::new(remaining_stream)))
+            .unwrap())
     }
 }
 
@@ -258,10 +262,24 @@ fn get_host_port(value: &str) -> Option<(&str, u16)> {
     }
 }
 
-fn get_error_response(code: impl Into<StatusCode>, msg: String) -> Response<Full<Bytes>> {
+fn get_error_response(
+    code: impl Into<StatusCode>,
+    msg: String,
+) -> Response<BoxBody<Bytes, Infallible>> {
     Response::builder()
         .status(code)
-        .body(Full::new(Bytes::from(msg)))
+        .body(BoxBody::new(Full::new(Bytes::from(msg))))
+        .unwrap()
+}
+
+fn get_error_response_stream(
+    code: impl Into<StatusCode>,
+    msg: String,
+) -> Response<BoxBody<Bytes, std::io::Error>> {
+    let content = stream::once(ready(Ok(Frame::data(Bytes::from(msg)))));
+    Response::builder()
+        .status(code)
+        .body(BoxBody::new(StreamBody::new(content)))
         .unwrap()
 }
 
