@@ -44,8 +44,8 @@ struct Script {
 }
 
 impl Script {
-    fn service<'a>(&'a self) -> impl Service<Request<Incoming>> + 'a {
-        service_fn(|req| self.server(req, todo!()))
+    fn service<'a>(&'a self, remote: &'a SocketAddr) -> impl Service<Request<Incoming>> + 'a {
+        service_fn(|req| self.server(req, remote))
     }
 
     async fn server(
