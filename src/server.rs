@@ -21,30 +21,31 @@ use tokio::{
 use futures::{stream, Stream, StreamExt, TryStreamExt};
 use tokio_util::io::{ReaderStream, StreamReader};
 
-struct Script {
+#[derive(Debug, Clone)]
+pub struct Script {
     // Path to the CGI executable
-    path: String,
+    pub path: String,
 
     // URI, empty for "/"
-    root: String,
+    pub root: String,
 
     // Working directory of the CGI executable.
     // If None, base directory of path is used.
     // If path as no base directory, dir is used
-    dir: Option<String>,
+    pub dir: Option<String>,
 
     // Environment variables
-    env: Vec<(String, String)>,
+    pub env: Vec<(String, String)>,
 
     // Arguments of the CGI executable
-    args: Vec<String>,
+    pub args: Vec<String>,
 
     // Inherited environment variables
-    inherited_env: Vec<String>,
+    pub inherited_env: Vec<String>,
 }
 
 impl Script {
-    fn service<'a>(&'a self, remote: &'a SocketAddr) -> impl Service<Request<Incoming>> + 'a {
+    pub fn service<'a>(&'a self, remote: &'a SocketAddr) -> impl Service<Request<Incoming>> + 'a {
         service_fn(|req| self.server(req, remote))
     }
 
