@@ -192,11 +192,9 @@ impl Script {
         }
 
         let cwd_cow: Cow<str>;
-        let path_cow: Cow<str>;
 
         if let Some(dir) = &self.dir {
             cwd_cow = Cow::from(dir);
-            path_cow = Cow::from(&self.path)
         } else {
             let p = Path::new(&self.path);
             if let Some(parent) = p.parent() {
@@ -209,24 +207,15 @@ impl Script {
             } else {
                 cwd_cow = Cow::from(".");
             }
-            if let Some(filename) = p.file_name() {
-                path_cow = filename.to_string_lossy();
-            } else {
-                return Ok(get_error_response(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("Cannot use {} as path", &self.path),
-                ));
-            }
         }
 
         let cwd: &str = &cwd_cow;
-        let path: &str = &path_cow;
 
         let body = BodyStream::new(req.into_body())
             .try_filter_map(|f| ready(Ok(f.into_data().ok())))
             .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err));
 
-        let child_opt = Command::new(path)
+        let child_opt = Command::new(&self.path)
             .kill_on_drop(true)
             .current_dir(cwd)
             .args(&self.args)
@@ -239,7 +228,10 @@ impl Script {
         if let Err(err) = child_opt {
             return Ok(get_error_response(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Cannot run cgi executable with error: {}", err),
+                format!(
+                    "Cannot run cgi executable {} with error: {}",
+                    &self.path, err
+                ),
             ));
         }
 
