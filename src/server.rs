@@ -45,14 +45,23 @@ pub struct Script {
 }
 
 impl Script {
-    pub fn service<'a>(&'a self, remote: &'a SocketAddr) -> impl Service<Request<Incoming>> + 'a {
-        service_fn(|req| self.server(req, remote))
+    pub fn service<'a>(
+        &'a self,
+        remote: SocketAddr,
+    ) -> impl Service<
+        Request<Incoming>,
+        Response = Response<BoxBody<Bytes, std::io::Error>>,
+        Error = Infallible,
+    >
+           + 'a
+           + Send {
+        service_fn(move |req| self.server(req, remote))
     }
 
-    async fn server(
+    pub async fn server(
         &self,
         req: Request<Incoming>,
-        remote: &SocketAddr,
+        remote: SocketAddr,
     ) -> Result<Response<BoxBody<Bytes, std::io::Error>>, Infallible> {
         let root = if self.root == "" { "/" } else { &self.root };
 
