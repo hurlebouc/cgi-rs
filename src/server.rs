@@ -352,7 +352,10 @@ impl Script {
             }
         }
 
-        let remaining_stream = ReaderStream::new(process_reader).map_ok(|bytes| Frame::data(bytes));
+        let remaining_stream = ReaderStream::new(process_reader).map_ok(|bytes| {
+            println!("remaining bytes: {}", String::from_utf8_lossy(&bytes));
+            Frame::data(bytes)
+        });
 
         Ok(response_builder
             .body(BoxBody::new(StreamBody::new(remaining_stream)))
@@ -373,7 +376,7 @@ fn get_error_response<E>(code: impl Into<StatusCode>, msg: String) -> Response<B
     Response::builder()
         .status(code)
         .body(BoxBody::new(
-            Full::new(Bytes::from(msg)).map_err(|never| unreachable!()),
+            Full::new(Bytes::from(msg)).map_err(|_never| unreachable!()),
         ))
         .unwrap()
 }
