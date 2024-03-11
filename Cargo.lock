@@ -228,7 +228,7 @@ checksum = "d231dfb89cfffdbc30e7fc41579ed6066ad03abda9e567ccafae602b97ec5024"
 [[package]]
 name = "hershell"
 version = "0.1.1"
-source = "git+https://forge.poipoi.org/hubert/hershell.git?branch=master#8308a3b01e822ae5857bd39272bd3f37b88b0363"
+source = "git+https://forge.poipoi.org/hubert/hershell.git?branch=master#0ca54e31920d788d534d3844a87d77369fea6a16"
 dependencies = [
  "bytes",
  "futures",

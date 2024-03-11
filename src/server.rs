@@ -241,8 +241,6 @@ impl Script {
 
         let mut process_reader = StreamReader::new(process_stream);
 
-        let mut line = String::new();
-
         let mut response_builder = Response::builder();
 
         let mut has_header = false;
@@ -251,6 +249,7 @@ impl Script {
         let mut has_content_type = false;
 
         loop {
+            let mut line = String::new();
             match process_reader.read_line(&mut line).await {
                 Ok(size) => {
                     if size == 0 {
@@ -264,8 +263,22 @@ impl Script {
                     }
                     if let Some((k, v)) = line.split_once(":") {
                         let (k, v) = (k.trim(), v.trim());
+                        //println!("key: {}, value: {}", k, v);
                         if k == "Status" {
-                            match v.parse::<u16>() {
+                            let code_str: &str;
+                            if v.contains(" ") {
+                                if let Some((code, _)) = v.split_once(" ") {
+                                    code_str = code;
+                                } else {
+                                    return Ok(get_error_response(
+                                        StatusCode::INTERNAL_SERVER_ERROR,
+                                        format!("Cannot read status {}", v),
+                                    ));
+                                }
+                            } else {
+                                code_str = v;
+                            }
+                            match code_str.parse::<u16>() {
                                 Ok(code) => {
                                     status_code = match StatusCode::from_u16(code) {
                                         Ok(code) => Some(code),
@@ -283,7 +296,10 @@ impl Script {
                                 Err(err) => {
                                     return Ok(get_error_response(
                                         StatusCode::INTERNAL_SERVER_ERROR,
-                                        format!("Cannot read status {} with error: {}", v, err),
+                                        format!(
+                                            "Cannot read status {} with error: {}",
+                                            code_str, err
+                                        ),
                                     ))
                                 }
                             }
