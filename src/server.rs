@@ -3,12 +3,12 @@ use std::{
     path::Path, process::Stdio,
 };
 
+use bytes::Bytes;
 use hershell::process::{self, ProcStreamExt};
 use http_body_util::{combinators::BoxBody, BodyExt, BodyStream, Full, StreamBody};
 use hyper::{
-    body::{Bytes, Frame, Incoming},
+    body::{Frame, Incoming},
     header::{CONTENT_LENGTH, CONTENT_TYPE, HOST, TRANSFER_ENCODING},
-    service::{service_fn, Service},
     Request, Response, StatusCode,
 };
 
@@ -18,7 +18,7 @@ use tokio::{
     task::JoinHandle,
 };
 
-use futures::{stream, Stream, StreamExt, TryStreamExt};
+use futures::{stream, StreamExt, TryStreamExt};
 use tokio_util::io::{ReaderStream, StreamReader};
 
 #[derive(Debug, Clone)]
@@ -45,17 +45,32 @@ pub struct Script {
 }
 
 impl Script {
-    pub fn service<'a>(
+    pub fn service_hyper<'a>(
         &'a self,
         remote: SocketAddr,
-    ) -> impl Service<
+    ) -> impl hyper::service::Service<
         Request<Incoming>,
         Response = Response<BoxBody<Bytes, std::io::Error>>,
         Error = Infallible,
-    >
-           + 'a
-           + Send {
-        service_fn(move |req| self.server(req, remote))
+        Future = impl Send + 'a,
+    > + 'a {
+        hyper::service::service_fn(move |req| self.server(req, remote))
+    }
+
+    pub fn service<'a>(
+        &'a self,
+        remote: SocketAddr,
+        limit: usize,
+    ) -> impl tower::Service<
+        Request<Incoming>,
+        Response = Response<BoxBody<Bytes, std::io::Error>>,
+        Error = Infallible,
+        Future = impl Send + 'a,
+    > + 'a {
+        tower::limit::ConcurrencyLimit::new(
+            tower::service_fn(move |req| self.server(req, remote)),
+            limit,
+        )
     }
 
     pub async fn server(

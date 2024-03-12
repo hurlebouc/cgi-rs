@@ -34,8 +34,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             // Finally, we bind the incoming connection to our `hello` service
             if let Err(err) = http1::Builder::new()
                 // `service_fn` converts our function in a `Service`
-                //.serve_connection(io, script.service(remote))
-                .serve_connection(io, service_fn(|req| script.server(req, remote)))
+                .serve_connection(io, script.service_hyper(remote))
+                //.serve_connection(io, service_fn(|req| script.server(req, remote)))
                 .await
             {
                 println!("Error serving connection: {:?}", err);
