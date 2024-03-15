@@ -1,5 +1,6 @@
 use std::{
     pin::Pin,
+    sync::Arc,
     task::{ready, Context, Poll},
 };
 
@@ -9,8 +10,9 @@ use hyper::{
     Request, Response,
 };
 use pin_project::pin_project;
-use tokio::sync::OwnedSemaphorePermit;
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio_util::sync::PollSemaphore;
+use tower::Layer;
 
 #[pin_project]
 pub struct PermittedBody<B> {
@@ -59,6 +61,19 @@ pub struct HttpConcurrencyLimit<S> {
     /// The permit is acquired in `poll_ready`, and taken in `call` when sending
     /// a new request.
     permit: Option<OwnedSemaphorePermit>,
+}
+
+impl<T: Clone> Clone for HttpConcurrencyLimit<T> {
+    fn clone(&self) -> Self {
+        // Since we hold an `OwnedSemaphorePermit`, we can't derive `Clone`.
+        // Instead, when cloning the service, create a new service with the
+        // same semaphore, but with the permit in the un-acquired state.
+        Self {
+            service: self.service.clone(),
+            semaphore: self.semaphore.clone(),
+            permit: None,
+        }
+    }
 }
 
 impl<S, B> tower::Service<Request<Incoming>> for HttpConcurrencyLimit<S>
@@ -126,6 +141,35 @@ where
             },
             Poll::Ready(Err(err)) => Poll::Ready(Err(err)),
             Poll::Pending => Poll::Pending,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct GlobalHttpConcurrencyLimitLayer {
+    semaphore: Arc<Semaphore>,
+}
+
+impl GlobalHttpConcurrencyLimitLayer {
+    /// Create a new `GlobalConcurrencyLimitLayer`.
+    pub fn new(max: usize) -> Self {
+        Self::with_semaphore(Arc::new(Semaphore::new(max)))
+    }
+
+    /// Create a new `GlobalConcurrencyLimitLayer` from a `Arc<Semaphore>`
+    pub fn with_semaphore(semaphore: Arc<Semaphore>) -> Self {
+        GlobalHttpConcurrencyLimitLayer { semaphore }
+    }
+}
+
+impl<S> Layer<S> for GlobalHttpConcurrencyLimitLayer {
+    type Service = HttpConcurrencyLimit<S>;
+
+    fn layer(&self, service: S) -> Self::Service {
+        HttpConcurrencyLimit {
+            service,
+            semaphore: PollSemaphore::new(self.semaphore.clone()),
+            permit: None,
         }
     }
 }
