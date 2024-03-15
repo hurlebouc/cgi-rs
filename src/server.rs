@@ -60,17 +60,15 @@ impl Script {
     pub fn service<'a>(
         &'a self,
         remote: SocketAddr,
-        limit: usize,
     ) -> impl tower::Service<
         Request<Incoming>,
         Response = Response<BoxBody<Bytes, std::io::Error>>,
         Error = Infallible,
         Future = impl Send + 'a,
-    > + 'a {
-        tower::limit::ConcurrencyLimit::new(
-            tower::service_fn(move |req| self.server(req, remote)),
-            limit,
-        )
+    >
+           + 'a
+           + Clone {
+        return tower::service_fn(move |req| self.server(req, remote));
     }
 
     pub async fn server(
