@@ -1,5 +1,6 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Duration;
 
 use cgi_rs::limit::{GlobalHttpConcurrencyLimitLayer, PermittedBody};
 use cgi_rs::server::Script;
@@ -12,6 +13,7 @@ use tokio::sync::mpsc::Permit;
 use tokio::sync::Semaphore;
 use tower::limit::GlobalConcurrencyLimitLayer;
 use tower::{Layer, ServiceBuilder};
+use tower_http::timeout::{RequestBodyTimeoutLayer, ResponseBodyTimeoutLayer};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -43,6 +45,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let io = TokioIo::new(stream);
         // Spawn a tokio task to serve multiple connections concurrently
         tokio::task::spawn(async move {
+            let service = ServiceBuilder::new()
+                .layer(concurrence_layer)
+                //.layer(RequestBodyTimeoutLayer::new(Duration::from_secs(30)))
+                .layer(ResponseBodyTimeoutLayer::new(Duration::from_secs(30)))
+                .service(script.service(remote));
             // Finally, we bind the incoming connection to our `hello` service
             if let Err(err) = http1::Builder::new()
                 // `service_fn` converts our function in a `Service`
@@ -57,12 +64,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 //             .map(|resp| resp.map(|body| PermittedBody::new(permit, body)))
                 //     }),
                 // )
-                .serve_connection(
-                    io,
-                    hyper_util::service::TowerToHyperService::new(
-                        concurrence_layer.layer(script.service(remote)),
-                    ),
-                )
+                .serve_connection(io, hyper_util::service::TowerToHyperService::new(service))
                 .await
             {
                 println!("Error serving connection: {:?}", err);

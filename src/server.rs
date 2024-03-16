@@ -7,7 +7,7 @@ use bytes::Bytes;
 use hershell::process::{self, ProcStreamExt};
 use http_body_util::{combinators::BoxBody, BodyExt, BodyStream, Full, StreamBody};
 use hyper::{
-    body::{Frame, Incoming},
+    body::{Body, Frame, Incoming},
     header::{CONTENT_LENGTH, CONTENT_TYPE, HOST, TRANSFER_ENCODING},
     Request, Response, StatusCode,
 };
@@ -45,37 +45,49 @@ pub struct Script {
 }
 
 impl Script {
-    pub fn service_hyper<'a>(
+    pub fn service_hyper<'a, B>(
         &'a self,
         remote: SocketAddr,
     ) -> impl hyper::service::Service<
-        Request<Incoming>,
+        Request<B>,
         Response = Response<BoxBody<Bytes, std::io::Error>>,
         Error = Infallible,
         Future = impl Send + 'a,
-    > + 'a {
+    > + 'a
+    where
+        B: Body<Data = Bytes> + Send + Sync + Unpin + 'static,
+        <B as Body>::Error: std::error::Error + Send + Sync,
+    {
         hyper::service::service_fn(move |req| self.server(req, remote))
     }
 
-    pub fn service<'a>(
+    pub fn service<'a, B>(
         &'a self,
         remote: SocketAddr,
     ) -> impl tower::Service<
-        Request<Incoming>,
+        Request<B>,
         Response = Response<BoxBody<Bytes, std::io::Error>>,
         Error = Infallible,
         Future = impl Send + 'a,
     >
            + 'a
-           + Clone {
+           + Clone
+    where
+        B: Body<Data = Bytes> + Send + Sync + Unpin + 'static,
+        <B as Body>::Error: std::error::Error + Send + Sync,
+    {
         return tower::service_fn(move |req| self.server(req, remote));
     }
 
-    pub async fn server(
+    pub async fn server<B>(
         &self,
-        req: Request<Incoming>,
+        req: Request<B>,
         remote: SocketAddr,
-    ) -> Result<Response<BoxBody<Bytes, std::io::Error>>, Infallible> {
+    ) -> Result<Response<BoxBody<Bytes, std::io::Error>>, Infallible>
+    where
+        B: Body<Data = Bytes> + Send + Sync + Unpin + 'static,
+        <B as Body>::Error: std::error::Error + Send + Sync,
+    {
         let root = if self.root == "" { "/" } else { &self.root };
 
         if let Some(encoding) = req.headers().get(TRANSFER_ENCODING) {
