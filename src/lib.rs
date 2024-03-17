@@ -1,5 +1,6 @@
 pub mod server;
 pub mod limit;
+pub mod timeout;
 
 pub fn add(left: usize, right: usize) -> usize {
     left + right
