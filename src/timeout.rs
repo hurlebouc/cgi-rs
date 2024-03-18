@@ -1,14 +1,14 @@
 use std::{
     pin::Pin,
-    task::{ready, Poll},
+    task::{ready, Context, Poll},
     time::Duration,
 };
 
 use futures::Future;
-use hyper::body::Body;
+use hyper::{body::Body, Request};
 use pin_project::pin_project;
 use tokio::time::{sleep, Sleep};
-use tower::BoxError;
+use tower::{BoxError, Layer, Service};
 
 /// Error for [`TimeoutBody`].
 #[derive(Debug)]
@@ -28,6 +28,17 @@ pub struct TimeoutBody<B> {
     sleep: Option<Pin<Box<Sleep>>>,
     #[pin]
     body: B,
+}
+
+impl<B> TimeoutBody<B> {
+    /// Creates a new [`TimeoutBody`].
+    pub fn new(timeout: Duration, body: B) -> Self {
+        TimeoutBody {
+            timeout,
+            sleep: None,
+            body,
+        }
+    }
 }
 
 impl<B> Body for TimeoutBody<B>
@@ -62,5 +73,62 @@ where
         *this.sleep = None;
 
         Poll::Ready(frame.transpose().map_err(Into::into).transpose())
+    }
+}
+
+/// Applies a [`TimeoutBody`] to the request body.
+#[derive(Clone, Debug)]
+pub struct RequestBodyTimeout<S> {
+    inner: S,
+    timeout: Duration,
+}
+
+impl<S> RequestBodyTimeout<S> {
+    /// Creates a new [`RequestBodyTimeout`].
+    pub fn new(service: S, timeout: Duration) -> Self {
+        Self {
+            inner: service,
+            timeout,
+        }
+    }
+}
+
+impl<S, ReqBody> Service<Request<ReqBody>> for RequestBodyTimeout<S>
+where
+    S: Service<Request<TimeoutBody<ReqBody>>>,
+    S::Error: Into<Box<dyn std::error::Error>>,
+{
+    type Response = S::Response;
+    type Error = S::Error;
+    type Future = S::Future;
+
+    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        self.inner.poll_ready(cx)
+    }
+
+    fn call(&mut self, req: Request<ReqBody>) -> Self::Future {
+        let req = req.map(|body| TimeoutBody::new(self.timeout, body));
+        self.inner.call(req)
+    }
+}
+
+/// Applies a [`TimeoutBody`] to the request body.
+#[derive(Clone, Debug)]
+pub struct RequestBodyTimeoutLayer {
+    timeout: Duration,
+}
+
+impl RequestBodyTimeoutLayer {
+    /// Creates a new [`RequestBodyTimeoutLayer`].
+    pub fn new(timeout: Duration) -> Self {
+        Self { timeout }
+    }
+}
+
+impl<S> Layer<S> for RequestBodyTimeoutLayer {
+    type Service = RequestBodyTimeout<S>;
+
+    fn layer(&self, inner: S) -> Self::Service {
+        RequestBodyTimeout::new(inner, self.timeout)
     }
 }

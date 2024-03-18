@@ -20,6 +20,7 @@ use tokio::{
 
 use futures::{stream, StreamExt, TryStreamExt};
 use tokio_util::io::{ReaderStream, StreamReader};
+use tower::BoxError;
 
 #[derive(Debug, Clone)]
 pub struct Script {
@@ -56,7 +57,7 @@ impl Script {
     > + 'a
     where
         B: Body<Data = Bytes> + Send + Sync + Unpin + 'static,
-        <B as Body>::Error: std::error::Error + Send + Sync,
+        <B as Body>::Error: Into<BoxError> + Sync + Send,
     {
         hyper::service::service_fn(move |req| self.server(req, remote))
     }
@@ -74,7 +75,7 @@ impl Script {
            + Clone
     where
         B: Body<Data = Bytes> + Send + Sync + Unpin + 'static,
-        <B as Body>::Error: std::error::Error + Send + Sync,
+        <B as Body>::Error: Into<BoxError> + Sync + Send,
     {
         return tower::service_fn(move |req| self.server(req, remote));
     }
@@ -86,7 +87,7 @@ impl Script {
     ) -> Result<Response<BoxBody<Bytes, std::io::Error>>, Infallible>
     where
         B: Body<Data = Bytes> + Send + Sync + Unpin + 'static,
-        <B as Body>::Error: std::error::Error + Send + Sync,
+        <B as Body>::Error: Into<BoxError> + Sync + Send,
     {
         let root = if self.root == "" { "/" } else { &self.root };
 

@@ -2,18 +2,22 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
+use bytes::Bytes;
 use cgi_rs::limit::{GlobalHttpConcurrencyLimitLayer, PermittedBody};
 use cgi_rs::server::Script;
+use cgi_rs::timeout::RequestBodyTimeoutLayer;
 use futures::FutureExt;
+use http_body_util::Full;
 use hyper::server::conn::http1;
 use hyper::service::service_fn;
+use hyper::{Request, Response};
 use hyper_util::rt::TokioIo;
 use tokio::net::TcpListener;
 use tokio::sync::mpsc::Permit;
 use tokio::sync::Semaphore;
 use tower::limit::GlobalConcurrencyLimitLayer;
 use tower::{Layer, ServiceBuilder};
-use tower_http::timeout::{RequestBodyTimeoutLayer, ResponseBodyTimeoutLayer};
+use tower_http::timeout::ResponseBodyTimeoutLayer;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -47,9 +51,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         tokio::task::spawn(async move {
             let service = ServiceBuilder::new()
                 .layer(concurrence_layer)
-                //.layer(RequestBodyTimeoutLayer::new(Duration::from_secs(30)))
+                .layer(RequestBodyTimeoutLayer::new(Duration::from_secs(30)))
                 .layer(ResponseBodyTimeoutLayer::new(Duration::from_secs(30)))
-                .service(script.service(remote));
+                //.service_fn(handle);
+                .service_fn(|req| script.server(req, remote));
+            //.service(script.service(remote));
             // Finally, we bind the incoming connection to our `hello` service
             if let Err(err) = http1::Builder::new()
                 // `service_fn` converts our function in a `Service`
@@ -71,4 +77,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             }
         });
     }
+}
+
+async fn handle(
+    _: Request<Full<Bytes>>,
+) -> Result<Response<Full<Bytes>>, std::convert::Infallible> {
+    todo!()
 }
