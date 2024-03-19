@@ -78,9 +78,3 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         });
     }
 }
-
-async fn handle(
-    _: Request<Full<Bytes>>,
-) -> Result<Response<Full<Bytes>>, std::convert::Infallible> {
-    todo!()
-}

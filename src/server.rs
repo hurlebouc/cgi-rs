@@ -22,6 +22,18 @@ use futures::{stream, StreamExt, TryStreamExt};
 use tokio_util::io::{ReaderStream, StreamReader};
 use tower::BoxError;
 
+#[cfg(debug_assertions)]
+macro_rules! trace {
+    ($x:expr) => {
+        println!("{}", $x)
+    };
+}
+
+#[cfg(not(debug_assertions))]
+macro_rules! trace {
+    ($x:expr) => {};
+}
+
 #[derive(Debug, Clone)]
 pub struct Script {
     // Path to the CGI executable
@@ -379,7 +391,10 @@ impl Script {
         }
 
         let remaining_stream = ReaderStream::new(process_reader).map_ok(|bytes| {
-            println!("remaining bytes: {}", String::from_utf8_lossy(&bytes));
+            trace!(format!(
+                "remaining bytes: {}",
+                String::from_utf8_lossy(&bytes)
+            ));
             Frame::data(bytes)
         });
 

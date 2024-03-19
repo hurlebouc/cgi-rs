@@ -19,3 +19,4 @@ tokio-util = "0.7.10"
 tower = { version = "0.4.13", features = ["limit"]}
 pin-project = "1.1.4"
 tower-http = { version = "0.5.2", features = ["timeout"] }
+clap = { version = "4.5.3", features = ["derive"] }
