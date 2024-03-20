@@ -1,22 +1,14 @@
 use std::net::SocketAddr;
-use std::sync::Arc;
+
 use std::time::Duration;
 
-use bytes::Bytes;
-use cgi_rs::limit::{GlobalHttpConcurrencyLimitLayer, PermittedBody};
+use cgi_rs::limit::GlobalHttpConcurrencyLimitLayer;
 use cgi_rs::server::Script;
 use cgi_rs::timeout::RequestBodyTimeoutLayer;
-use futures::FutureExt;
-use http_body_util::Full;
 use hyper::server::conn::http1;
-use hyper::service::service_fn;
-use hyper::{Request, Response};
 use hyper_util::rt::TokioIo;
 use tokio::net::TcpListener;
-use tokio::sync::mpsc::Permit;
-use tokio::sync::Semaphore;
-use tower::limit::GlobalConcurrencyLimitLayer;
-use tower::{Layer, ServiceBuilder};
+use tower::ServiceBuilder;
 use tower_http::timeout::ResponseBodyTimeoutLayer;
 
 #[tokio::main]

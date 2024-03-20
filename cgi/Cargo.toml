@@ -8,11 +8,8 @@ edition = "2021"
 [dependencies]
 clap = { version = "4.5.3", features = ["derive"] }
 hyper = "1"
-hyper-util = { version = "0.1", features = ["full"] }
+hyper-util = { version = "0.1", features = ["tokio", "service", "server", "http1"] }
 cgi-rs = { path = "../cgi-rs"}
-bytes = "1.5.0"
-futures = "0.3.30"
-http-body-util = "0.1"
 tokio = "1.36.0"
-tower = { version = "0.4.13", features = ["limit"]}
+tower = { version = "0.4.13"}
 tower-http = { version = "0.5.2", features = ["timeout"] }

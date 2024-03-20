@@ -129,11 +129,8 @@ checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 name = "cgi"
 version = "0.1.0"
 dependencies = [
- "bytes",
  "cgi-rs",
  "clap",
- "futures",
- "http-body-util",
  "hyper",
  "hyper-util",
  "tokio",
@@ -434,7 +431,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ca38ef113da30126bbff9cd1705f9273e15d45498615d138b0c20279ac7a76aa"
 dependencies = [
  "bytes",
- "futures-channel",
  "futures-util",
  "http",
  "http-body",
@@ -444,7 +440,6 @@ dependencies = [
  "tokio",
  "tower",
  "tower-service",
- "tracing",
 ]
 
 [[package]]
@@ -765,7 +760,6 @@ dependencies = [
  "pin-project",
  "pin-project-lite",
  "tokio",
- "tokio-util",
  "tower-layer",
  "tower-service",
  "tracing",
