@@ -1,6 +1,12 @@
 use std::{
-    borrow::Cow, collections::HashMap, convert::Infallible, future::ready, net::SocketAddr,
-    path::Path, process::Stdio,
+    borrow::Cow,
+    collections::HashMap,
+    convert::Infallible,
+    future::ready,
+    net::SocketAddr,
+    ops::Deref,
+    path::{Path, PathBuf},
+    process::Stdio,
 };
 
 use bytes::Bytes;
@@ -12,10 +18,7 @@ use hyper::{
     Request, Response, StatusCode,
 };
 
-use tokio::{
-    io::AsyncBufReadExt,
-    process::Command,
-};
+use tokio::{io::AsyncBufReadExt, process::Command};
 
 use futures::{stream, StreamExt, TryStreamExt};
 use tokio_util::io::{ReaderStream, StreamReader};
@@ -36,15 +39,15 @@ macro_rules! trace {
 #[derive(Debug, Clone)]
 pub struct Script {
     // Path to the CGI executable
-    pub path: String,
+    pub path: PathBuf,
 
     // URI, empty for "/"
-    pub root: String,
+    pub root: PathBuf,
 
     // Working directory of the CGI executable.
     // If None, base directory of path is used.
     // If path as no base directory, dir is used
-    pub dir: Option<String>,
+    pub dir: Option<PathBuf>,
 
     // Environment variables
     pub env: Vec<(String, String)>,
@@ -100,7 +103,12 @@ impl Script {
         B: Body<Data = Bytes> + Send + Sync + Unpin + 'static,
         <B as Body>::Error: Into<BoxError> + Sync + Send,
     {
-        let root = if self.root == "" { "/" } else { &self.root };
+        let root_cow = self.root.to_string_lossy();
+        let root = if root_cow == "" {
+            Cow::from("/")
+        } else {
+            root_cow
+        };
 
         if let Some(encoding) = req.headers().get(TRANSFER_ENCODING) {
             if encoding == "chunked" {
@@ -112,7 +120,7 @@ impl Script {
         }
 
         let req_path = req.uri().path();
-        let path_info = if root != "/" && req_path.starts_with(root) {
+        let path_info = if root != "/" && req_path.starts_with(root.deref()) {
             &req_path[root.len()..]
         } else {
             req_path
@@ -143,7 +151,10 @@ impl Script {
         }
         env.insert("PATH_INFO".to_string(), path_info.to_string());
         env.insert("SCRIPT_NAME".to_string(), root.to_string());
-        env.insert("SCRIPT_FILENAME".to_string(), self.path.clone());
+        env.insert(
+            "SCRIPT_FILENAME".to_string(),
+            self.path.to_string_lossy().to_string(),
+        );
 
         env.insert("REMOTE_ADDR".to_string(), remote.ip().to_string());
         env.insert("REMOTE_HOST".to_string(), remote.ip().to_string());
@@ -231,7 +242,7 @@ impl Script {
         let cwd_cow: Cow<str>;
 
         if let Some(dir) = &self.dir {
-            cwd_cow = Cow::from(dir);
+            cwd_cow = dir.to_string_lossy();
         } else {
             let p = Path::new(&self.path);
             if let Some(parent) = p.parent() {
@@ -267,7 +278,8 @@ impl Script {
                 StatusCode::INTERNAL_SERVER_ERROR,
                 format!(
                     "Cannot run cgi executable {} with error: {}",
-                    &self.path, err
+                    &self.path.to_string_lossy(),
+                    err
                 ),
             ));
         }

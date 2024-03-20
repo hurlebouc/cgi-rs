@@ -1,6 +1,7 @@
 use std::net::SocketAddr;
 
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::time::Duration;
 
 use cgi_rs::limit::GlobalHttpConcurrencyLimitLayer;
@@ -18,9 +19,21 @@ use clap::Parser;
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
-    /// Listening port (default 8080)
-    #[arg(short, long)]
-    port: Option<u16>,
+    /// Binding address and port (default 0.0.0.0:8080)
+    #[arg(long)]
+    address: Option<String>,
+
+    /// Root of the script (default "")
+    #[arg(long)]
+    root: Option<PathBuf>,
+
+    /// Request body read timeout in millisecond (default "30000")
+    #[arg(long)]
+    request_body_timeout: Option<u64>,
+
+    /// Response body read timeout in millisecond (default "30000")
+    #[arg(long)]
+    response_body_timeout: Option<u64>,
 
     /// Path of cgi script
     path: PathBuf,
@@ -29,10 +42,14 @@ struct Args {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let args = Args::parse();
-    let addr = SocketAddr::from(([127, 0, 0, 1], args.port.unwrap_or(8080)));
+    let binding_address = args.address.as_deref().unwrap_or("0.0.0.0:8080");
+    let addr = SocketAddr::from_str(binding_address).expect(&format!(
+        "Cannot parse {} as binding address",
+        &binding_address
+    ));
     let script = Script {
-        path: args.path.to_string_lossy().to_string(),
-        root: "".to_string(),
+        path: args.path,
+        root: args.root.unwrap_or(PathBuf::new()),
         dir: None,
         env: Vec::new(),
         args: Vec::new(),
@@ -59,8 +76,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         tokio::task::spawn(async move {
             let service = ServiceBuilder::new()
                 .layer(concurrence_layer)
-                .layer(RequestBodyTimeoutLayer::new(Duration::from_secs(30)))
-                .layer(ResponseBodyTimeoutLayer::new(Duration::from_secs(30)))
+                .layer(RequestBodyTimeoutLayer::new(Duration::from_millis(
+                    args.request_body_timeout.unwrap_or(30000),
+                )))
+                .layer(ResponseBodyTimeoutLayer::new(Duration::from_millis(
+                    args.response_body_timeout.unwrap_or(30000),
+                )))
                 //.service_fn(handle);
                 .service_fn(|req| script.server(req, remote));
             //.service(script.service(remote));
