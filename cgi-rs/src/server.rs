@@ -422,44 +422,6 @@ fn get_error_response<E>(code: impl Into<StatusCode>, msg: String) -> Response<B
         .unwrap()
 }
 
-fn get_error_response_stream(
-    code: impl Into<StatusCode>,
-    msg: String,
-) -> Response<BoxBody<Bytes, std::io::Error>> {
-    let content = stream::once(ready(Ok(Frame::data(Bytes::from(msg)))));
-    Response::builder()
-        .status(code)
-        .body(BoxBody::new(StreamBody::new(content)))
-        .unwrap()
-}
-
-async fn flatten_join_handle<T>(handle: JoinHandle<Result<T, String>>) -> Result<T, String> {
-    match handle.await {
-        Ok(Ok(result)) => Ok(result),
-        Ok(Err(err)) => Err(err),
-        Err(err) => Err(format!("handling failed: {}", err)),
-    }
-}
-
-async fn feed_stdin(mut stdin: ChildStdin, mut body: BodyStream<Incoming>) -> Result<(), String> {
-    while let Some(frame_opt) = body.next().await {
-        match frame_opt {
-            Ok(frame) => {
-                if let Ok(bytes) = frame.into_data() {
-                    if let Err(err) = stdin.write_all(&bytes).await {
-                        return Err(format!(
-                            "Error while writing body to the CGI executable: {}",
-                            err
-                        ));
-                    }
-                }
-            }
-            Err(e) => return Err(format!("Error while reading request body: {}", e)),
-        }
-    }
-    Ok(())
-}
-
 #[cfg(target_os = "macos")]
 static OS_SPECIFIC_VARS: &[&str] = &["DYLD_LIBRARY_PATH"];
 #[cfg(target_os = "ios")]
