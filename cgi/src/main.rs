@@ -15,7 +15,7 @@ use tower_http::timeout::ResponseBodyTimeoutLayer;
 
 use clap::Parser;
 
-/// Simple program to greet a person
+/// Simple CGI server
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
