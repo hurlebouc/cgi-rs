@@ -28,11 +28,11 @@ struct Args {
     root: Option<PathBuf>,
 
     /// Request body read timeout in millisecond (default "30000")
-    #[arg(long)]
+    #[arg(long = "req-body-timeout")]
     request_body_timeout: Option<u64>,
 
     /// Response body read timeout in millisecond (default "30000")
-    #[arg(long)]
+    #[arg(long = "res-body-timeout")]
     response_body_timeout: Option<u64>,
 
     /// Path of cgi script
