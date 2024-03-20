@@ -1,5 +1,6 @@
 use std::net::SocketAddr;
 
+use std::path::PathBuf;
 use std::time::Duration;
 
 use cgi_rs::limit::GlobalHttpConcurrencyLimitLayer;
@@ -11,11 +12,26 @@ use tokio::net::TcpListener;
 use tower::ServiceBuilder;
 use tower_http::timeout::ResponseBodyTimeoutLayer;
 
+use clap::Parser;
+
+/// Simple program to greet a person
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+struct Args {
+    /// Listening port (default 8080)
+    #[arg(short, long)]
+    port: Option<u16>,
+
+    /// Path of cgi script
+    path: PathBuf,
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
+    let args = Args::parse();
+    let addr = SocketAddr::from(([127, 0, 0, 1], args.port.unwrap_or(8080)));
     let script = Script {
-        path: "/home/hubert/src/cgi-script-go/cgi-script-go".to_string(),
+        path: args.path.to_string_lossy().to_string(),
         root: "".to_string(),
         dir: None,
         env: Vec::new(),
