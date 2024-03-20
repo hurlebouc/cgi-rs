@@ -7,15 +7,14 @@ use bytes::Bytes;
 use hershell::process::{self, ProcStreamExt};
 use http_body_util::{combinators::BoxBody, BodyExt, BodyStream, Full, StreamBody};
 use hyper::{
-    body::{Body, Frame, Incoming},
+    body::{Body, Frame},
     header::{CONTENT_LENGTH, CONTENT_TYPE, HOST, TRANSFER_ENCODING},
     Request, Response, StatusCode,
 };
 
 use tokio::{
-    io::{AsyncBufReadExt, AsyncWriteExt},
-    process::{ChildStdin, Command},
-    task::JoinHandle,
+    io::AsyncBufReadExt,
+    process::Command,
 };
 
 use futures::{stream, StreamExt, TryStreamExt};
