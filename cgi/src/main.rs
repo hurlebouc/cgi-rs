@@ -27,6 +27,10 @@ struct Args {
     #[arg(long)]
     root: Option<PathBuf>,
 
+    /// Directory of the cgi script
+    #[arg(long)]
+    dir: Option<PathBuf>,
+
     /// Request body read timeout in millisecond (default "30000")
     #[arg(long = "req-body-timeout")]
     request_body_timeout: Option<u64>,
@@ -34,6 +38,10 @@ struct Args {
     /// Response body read timeout in millisecond (default "30000")
     #[arg(long = "res-body-timeout")]
     response_body_timeout: Option<u64>,
+
+    /// Max number of parallel processes (default "4")
+    #[arg(long = "max-processes")]
+    max_processes: Option<u16>,
 
     /// Path of cgi script
     path: PathBuf,
@@ -50,14 +58,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let script = Script {
         path: args.path,
         root: args.root.unwrap_or(PathBuf::new()),
-        dir: None,
+        dir: args.dir,
         env: Vec::new(),
         args: Vec::new(),
         inherited_env: Vec::new(),
     };
     //let semaphore = Arc::new(Semaphore::new(1));
     // let concurrence_layer = GlobalConcurrencyLimitLayer::new(1);
-    let concurrence_layer = GlobalHttpConcurrencyLimitLayer::new(2);
+    let concurrence_layer =
+        GlobalHttpConcurrencyLimitLayer::new(args.max_processes.unwrap_or(4).into());
 
     // We create a TcpListener and bind it to 127.0.0.1:3000
     let listener = TcpListener::bind(addr).await?;
