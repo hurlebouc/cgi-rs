@@ -6,3 +6,13 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+clap = { version = "4.5.3", features = ["derive"] }
+hyper = "1"
+hyper-util = { version = "0.1", features = ["full"] }
+cgi-rs = { path = "../cgi-rs"}
+bytes = "1.5.0"
+futures = "0.3.30"
+http-body-util = "0.1"
+tokio = "1.36.0"
+tower = { version = "0.4.13", features = ["limit"]}
+tower-http = { version = "0.5.2", features = ["timeout"] }
