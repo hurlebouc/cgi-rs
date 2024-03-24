@@ -14,7 +14,7 @@ use hershell::process::{self, ProcStreamExt};
 use http_body_util::{combinators::BoxBody, BodyExt, BodyStream, Full, StreamBody};
 use hyper::{
     body::{Body, Frame},
-    header::{CONTENT_LENGTH, CONTENT_TYPE, HOST, TRANSFER_ENCODING},
+    header::{HeaderName, HeaderValue, CONTENT_LENGTH, CONTENT_TYPE, HOST, TRANSFER_ENCODING},
     Request, Response, StatusCode,
 };
 
@@ -312,48 +312,43 @@ impl Script {
                     }
                     if let Some((k, v)) = line.split_once(":") {
                         let (k, v) = (k.trim(), v.trim());
-                        //println!("key: {}, value: {}", k, v);
+                        trace!(format!("HEADER: key: {}, value: {}", k, v));
                         if k == "Status" {
                             let code_str: &str;
-                            if v.contains(" ") {
-                                if let Some((code, _)) = v.split_once(" ") {
-                                    code_str = code;
-                                } else {
-                                    return Ok(get_error_response(
-                                        StatusCode::INTERNAL_SERVER_ERROR,
-                                        format!("Cannot read status {}", v),
-                                    ));
-                                }
+                            if let Some((code, _)) = v.split_once(" ") {
+                                code_str = code;
                             } else {
                                 code_str = v;
                             }
                             match code_str.parse::<u16>() {
                                 Ok(code) => {
-                                    status_code = match StatusCode::from_u16(code) {
-                                        Ok(code) => Some(code),
+                                    match StatusCode::from_u16(code) {
+                                        Ok(code) => {
+                                            status_code = Some(code);
+                                        }
                                         Err(err) => {
-                                            return Ok(get_error_response(
-                                                StatusCode::INTERNAL_SERVER_ERROR,
-                                                format!(
-                                                    "Unknown code {} with error: {}",
-                                                    code, err
-                                                ),
-                                            ))
+                                            println!("Unknown code {} with error: {}", code, err);
                                         }
                                     };
                                 }
                                 Err(err) => {
-                                    return Ok(get_error_response(
-                                        StatusCode::INTERNAL_SERVER_ERROR,
-                                        format!(
-                                            "Cannot read status {} with error: {}",
-                                            code_str, err
-                                        ),
-                                    ))
+                                    println!("Cannot read status {} with error: {}", code_str, err);
                                 }
                             }
                         } else {
-                            response_builder = response_builder.header(k, v);
+                            let ktr = HeaderName::try_from(k);
+                            let vtr = HeaderValue::try_from(v);
+                            match (ktr, vtr) {
+                                (Ok(kt), Ok(vt)) => {
+                                    response_builder = response_builder.header(kt, vt);
+                                }
+                                (Ok(_), Err(err)) => {
+                                    println!("Cannot read header value: {}. Error: {}", v, err);
+                                }
+                                (Err(err), _) => {
+                                    println!("Cannot read header key: {}. Error: {}", k, err);
+                                }
+                            }
                         }
                         if k == "Location" && v != "" {
                             has_location_header = true;
@@ -362,7 +357,7 @@ impl Script {
                             has_content_type = true;
                         }
                     } else {
-                        // bad header line
+                        println!("Bad header line: {}", line)
                     }
                 }
                 Err(err) => {
