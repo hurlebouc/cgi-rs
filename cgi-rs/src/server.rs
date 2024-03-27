@@ -18,9 +18,12 @@ use hyper::{
     Request, Response, StatusCode,
 };
 
-use tokio::{io::AsyncBufReadExt, process::Command};
+use tokio::{
+    io::{AsyncBufReadExt, AsyncWriteExt},
+    process::Command,
+};
 
-use futures::{stream, StreamExt, TryStreamExt};
+use futures::{FutureExt, TryStreamExt};
 use tokio_util::io::{ReaderStream, StreamReader};
 use tower::BoxError;
 
@@ -286,7 +289,16 @@ impl Script {
 
         let child = child_opt.unwrap();
 
-        let process_stream = process::new_process_typed(child, body, 1024).stdout();
+        let stderr = tokio::io::stderr();
+
+        let process_stream = process::new_process_typed(child, body, 1024)
+            //.foreach_err(|b| {
+            //    ready(Ok::<(), std::io::Error>(eprint!(
+            //        "{}",
+            //        String::from_utf8_lossy(&b)
+            //    )))
+            //});
+            .foreach_err(|b| Box::pin(async move { tokio::io::stderr().write_all(&b).await }));
 
         let mut process_reader = StreamReader::new(process_stream);
 
