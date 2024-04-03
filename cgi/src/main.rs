@@ -1,15 +1,16 @@
+mod limit;
+mod timeout;
 use std::net::SocketAddr;
-
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::str::FromStr;
 use std::time::Duration;
 
-use cgi_rs::limit::GlobalHttpConcurrencyLimitLayer;
 use cgi_rs::server::Script;
-use cgi_rs::timeout::RequestBodyTimeoutLayer;
 use hyper::server::conn::http1;
 use hyper_util::rt::TokioIo;
+use limit::GlobalHttpConcurrencyLimitLayer;
+use timeout::RequestBodyTimeoutLayer;
 use tokio::io::{stderr, AsyncWrite, Stderr};
 use tokio::net::TcpListener;
 use tower::ServiceBuilder;

@@ -1,9 +1,8 @@
 use std::env;
 
+use hyper::service::Service;
 use hyper::Request;
 use hyper::Version;
-use tower::Service;
-use tower::ServiceExt;
 
 async fn serve<S>(service: S)
 where
@@ -22,5 +21,5 @@ where
 
     let req = req_builder.body(()).unwrap();
 
-    service.oneshot(req);
+    service.call(req).await;
 }

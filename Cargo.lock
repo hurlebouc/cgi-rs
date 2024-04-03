@@ -131,9 +131,12 @@ version = "0.3.0"
 dependencies = [
  "cgi-rs",
  "clap",
+ "futures",
  "hyper",
  "hyper-util",
+ "pin-project",
  "tokio",
+ "tokio-util",
  "tower",
  "tower-http",
 ]
@@ -149,7 +152,6 @@ dependencies = [
  "hyper",
  "hyper-util",
  "log",
- "pin-project",
  "regex",
  "tokio",
  "tokio-util",
