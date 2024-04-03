@@ -19,7 +19,7 @@ use hyper::{
 };
 
 use tokio::{
-    io::{AsyncBufReadExt, AsyncWriteExt},
+    io::{AsyncBufReadExt, AsyncWrite, AsyncWriteExt},
     process::Command,
 };
 
@@ -63,48 +63,16 @@ pub struct Script {
 }
 
 impl Script {
-    pub fn service_hyper<'a, B>(
-        &'a self,
-        remote: SocketAddr,
-    ) -> impl hyper::service::Service<
-        Request<B>,
-        Response = Response<BoxBody<Bytes, std::io::Error>>,
-        Error = Infallible,
-        Future = impl Send + 'a,
-    > + 'a
-    where
-        B: Body<Data = Bytes> + Send + Sync + Unpin + 'static,
-        <B as Body>::Error: Into<BoxError> + Sync + Send,
-    {
-        hyper::service::service_fn(move |req| self.server(req, remote))
-    }
-
-    pub fn service<'a, B>(
-        &'a self,
-        remote: SocketAddr,
-    ) -> impl tower::Service<
-        Request<B>,
-        Response = Response<BoxBody<Bytes, std::io::Error>>,
-        Error = Infallible,
-        Future = impl Send + 'a,
-    >
-           + 'a
-           + Clone
-    where
-        B: Body<Data = Bytes> + Send + Sync + Unpin + 'static,
-        <B as Body>::Error: Into<BoxError> + Sync + Send,
-    {
-        return tower::service_fn(move |req| self.server(req, remote));
-    }
-
-    pub async fn server<B>(
+    pub async fn server<B, W>(
         &self,
         req: Request<B>,
         remote: SocketAddr,
+        error_writer: W,
     ) -> Result<Response<BoxBody<Bytes, std::io::Error>>, Infallible>
     where
         B: Body<Data = Bytes> + Send + Sync + Unpin + 'static,
         <B as Body>::Error: Into<BoxError> + Sync + Send,
+        W: AsyncWrite + Unpin + Send + Sync + Clone + 'static,
     {
         let root_cow = self.root.to_string_lossy();
         let root = if root_cow == "" {
@@ -289,8 +257,6 @@ impl Script {
 
         let child = child_opt.unwrap();
 
-        let stderr = tokio::io::stderr();
-
         let process_stream = process::new_process_typed(child, body, 1024)
             //.foreach_err(|b| {
             //    ready(Ok::<(), std::io::Error>(eprint!(
@@ -298,7 +264,10 @@ impl Script {
             //        String::from_utf8_lossy(&b)
             //    )))
             //});
-            .foreach_err(|b| Box::pin(async move { tokio::io::stderr().write_all(&b).await }));
+            .foreach_err(move |b| {
+                let mut error_writer = error_writer.clone();
+                Box::pin(async move { error_writer.write_all(&b).await })
+            });
 
         let mut process_reader = StreamReader::new(process_stream);
 

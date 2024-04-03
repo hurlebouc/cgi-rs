@@ -1,6 +1,7 @@
 use std::net::SocketAddr;
 
 use std::path::PathBuf;
+use std::pin::Pin;
 use std::str::FromStr;
 use std::time::Duration;
 
@@ -9,6 +10,7 @@ use cgi_rs::server::Script;
 use cgi_rs::timeout::RequestBodyTimeoutLayer;
 use hyper::server::conn::http1;
 use hyper_util::rt::TokioIo;
+use tokio::io::{stderr, AsyncWrite, Stderr};
 use tokio::net::TcpListener;
 use tower::ServiceBuilder;
 use tower_http::timeout::ResponseBodyTimeoutLayer;
@@ -92,7 +94,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                     args.response_body_timeout.unwrap_or(30000),
                 )))
                 //.service_fn(handle);
-                .service_fn(|req| script.server(req, remote));
+                .service_fn(|req| script.server(req, remote, ClonableStderr::new()));
             //.service(script.service(remote));
             // Finally, we bind the incoming connection to our `hello` service
             if let Err(err) = http1::Builder::new()
@@ -114,5 +116,43 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 println!("Error serving connection: {:?}", err);
             }
         });
+    }
+}
+
+struct ClonableStderr(Stderr);
+
+impl ClonableStderr {
+    fn new() -> ClonableStderr {
+        ClonableStderr(stderr())
+    }
+}
+
+impl Clone for ClonableStderr {
+    fn clone(&self) -> Self {
+        Self(stderr())
+    }
+}
+
+impl AsyncWrite for ClonableStderr {
+    fn poll_write(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<Result<usize, std::io::Error>> {
+        Pin::new(&mut self.0).poll_write(cx, buf)
+    }
+
+    fn poll_flush(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<(), std::io::Error>> {
+        Pin::new(&mut self.0).poll_flush(cx)
+    }
+
+    fn poll_shutdown(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<(), std::io::Error>> {
+        Pin::new(&mut self.0).poll_shutdown(cx)
     }
 }

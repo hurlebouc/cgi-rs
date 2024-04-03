@@ -18,7 +18,7 @@ where
     let proto =
         env::var("SERVER_PROTOCOL").expect("Environment variable SERVER_PROTOCOL is not defined");
 
-    req_builder = req_builder.version(proto);
+    //req_builder = req_builder.version(proto);
 
     let req = req_builder.body(()).unwrap();
 
