@@ -1,12 +1,15 @@
 use std::env;
 
+use hyper::body::Body;
 use hyper::service::Service;
 use hyper::Request;
+use hyper::Response;
 use hyper::Version;
 
-async fn serve<S>(service: S)
+async fn runCGI<S, ResBody>(service: S)
 where
-    S: Service<Request<()>>,
+    S: Service<Request<()>, Response = Response<ResBody>>,
+    ResBody: Body,
 {
     let mut req_builder = Request::builder();
 
@@ -21,5 +24,8 @@ where
 
     let req = req_builder.body(()).unwrap();
 
-    service.call(req).await;
+    match service.call(req).await {
+        Ok(response) => {}
+        Err(err) => {}
+    }
 }
