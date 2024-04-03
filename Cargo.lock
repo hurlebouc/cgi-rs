@@ -155,7 +155,6 @@ dependencies = [
  "regex",
  "tokio",
  "tokio-util",
- "tower",
 ]
 
 [[package]]

@@ -16,4 +16,3 @@ log = "0.4.20"
 bytes = "1.5.0"
 hershell = {git = "https://github.com/hurlebouc/hershell.git", branch = "master"}
 tokio-util = {version = "0.7.10", features = ["io"]}
-tower = { version = "0.4.13", features = ["util"]}
