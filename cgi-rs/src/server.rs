@@ -23,9 +23,8 @@ use tokio::{
     process::Command,
 };
 
-use futures::{FutureExt, TryStreamExt};
+use futures::TryStreamExt;
 use tokio_util::io::{ReaderStream, StreamReader};
-use tower::BoxError;
 
 #[cfg(debug_assertions)]
 macro_rules! trace {
@@ -39,31 +38,33 @@ macro_rules! trace {
     ($x:expr) => {};
 }
 
+pub type BoxError = Box<dyn std::error::Error + Send + Sync>;
+
 #[derive(Debug, Clone)]
 pub struct Script {
-    // Path to the CGI executable
+    /// Path to the CGI executable
     pub path: PathBuf,
 
-    // URI, empty for "/"
+    /// URI, empty for "/"
     pub root: PathBuf,
 
-    // Working directory of the CGI executable.
-    // If None, base directory of path is used.
-    // If path as no base directory, dir is used
+    /// Working directory of the CGI executable.
+    /// If None, base directory of path is used.
+    /// If path as no base directory, dir is used
     pub dir: Option<PathBuf>,
 
-    // Environment variables
+    /// Environment variables
     pub env: Vec<(String, String)>,
 
-    // Arguments of the CGI executable
+    /// Arguments of the CGI executable
     pub args: Vec<String>,
 
-    // Inherited environment variables
+    /// Inherited environment variables
     pub inherited_env: Vec<String>,
 }
 
 impl Script {
-    pub async fn server<B, W>(
+    pub async fn serve<B, W>(
         &self,
         req: Request<B>,
         remote: SocketAddr,

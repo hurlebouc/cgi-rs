@@ -94,7 +94,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                     args.response_body_timeout.unwrap_or(30000),
                 )))
                 //.service_fn(handle);
-                .service_fn(|req| script.server(req, remote, ClonableStderr::new()));
+                .service_fn(|req| script.serve(req, remote, ClonableStderr::new()));
             //.service(script.service(remote));
             // Finally, we bind the incoming connection to our `hello` service
             if let Err(err) = http1::Builder::new()
