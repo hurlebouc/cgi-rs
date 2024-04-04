@@ -18,12 +18,12 @@ use tokio::io::BufWriter;
 
 use crate::common::ConnInfo;
 
-pub async fn run_cgi<S, F, ResBody, Data>(service_builder: F)
+pub async fn run_cgi<S, F, ResBody>(service_builder: F)
 where
     S: Service<Request<()>, Response = Response<ResBody>>,
     F: FnOnce(ConnInfo) -> S,
-    ResBody: Body<Data = Data>,
-    Data: AsRef<[u8]>,
+    ResBody: Body,
+    ResBody::Data: AsRef<[u8]>,
 {
     let mut req_builder = Request::builder();
 
