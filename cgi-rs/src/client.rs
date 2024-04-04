@@ -1,6 +1,6 @@
 use std::env;
+use std::pin::pin;
 
-use bytes::Bytes;
 use futures::TryStreamExt;
 use http_body_util::BodyStream;
 use hyper::body::Body;
@@ -14,10 +14,11 @@ use tokio::io::stdout;
 use tokio::io::AsyncWriteExt;
 use tokio::io::BufWriter;
 
-pub async fn run_cgi<S, ResBody>(service: S)
+pub async fn run_cgi<S, ResBody, Data>(service: S)
 where
     S: Service<Request<()>, Response = Response<ResBody>>,
-    ResBody: Body,
+    ResBody: Body<Data = Data>,
+    Data: AsRef<[u8]>,
 {
     let mut req_builder = Request::builder();
 
@@ -92,8 +93,10 @@ where
     let req = req_builder.body(()).unwrap();
 
     match service.call(req).await {
-        Ok(response) => {}
-        Err(err) => {}
+        Ok(response) => write_response(response).await,
+        Err(err) => {
+            panic!("cannot read body")
+        }
     }
 }
 
@@ -109,7 +112,7 @@ fn get_req_uri() -> String {
         }
 }
 
-async fn write_response<B: Body<Data = Bytes>>(response: Response<B>) {
+async fn write_response<Data: AsRef<[u8]>, B: Body<Data = Data>>(response: Response<B>) {
     let mut out = BufWriter::new(stdout());
     let code = response.status().as_u16();
     let reason = response.status().canonical_reason();
@@ -142,8 +145,17 @@ async fn write_response<B: Body<Data = Bytes>>(response: Response<B>) {
         .expect("Cannot write to stdout");
     out.flush().await.expect("Cannot flush to stdout");
 
-    let body = BodyStream::new(response.into_body());
-    loop {
-        //body.try_next()
+    let body = pin!(response.into_body());
+    let mut stream_body = BodyStream::new(body);
+    while let Ok(Some(frame)) = stream_body.try_next().await {
+        match frame.into_data() {
+            Ok(data) => {
+                out.write_all(data.as_ref())
+                    .await
+                    .expect("Cannot write body to stdout");
+                out.flush().await.expect("Cannot flush to stdout");
+            }
+            Err(_) => {}
+        }
     }
 }
