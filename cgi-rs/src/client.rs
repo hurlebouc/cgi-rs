@@ -142,7 +142,7 @@ where
     match service.call(req).await {
         Ok(response) => write_response(response).await,
         Err(err) => {
-            panic!("cannot read body")
+            panic!("cannot call service")
         }
     }
 }
