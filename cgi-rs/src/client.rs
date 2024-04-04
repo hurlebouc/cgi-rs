@@ -1,4 +1,5 @@
 use std::env;
+use std::net::IpAddr;
 use std::pin::pin;
 
 use futures::TryStreamExt;
@@ -14,9 +15,12 @@ use tokio::io::stdout;
 use tokio::io::AsyncWriteExt;
 use tokio::io::BufWriter;
 
-pub async fn run_cgi<S, ResBody, Data>(service: S)
+use crate::common::ConnInfo;
+
+pub async fn run_cgi<S, F, ResBody, Data>(service_builder: F)
 where
     S: Service<Request<()>, Response = Response<ResBody>>,
+    F: FnOnce(ConnInfo) -> S,
     ResBody: Body<Data = Data>,
     Data: AsRef<[u8]>,
 {
@@ -91,6 +95,49 @@ where
     }
 
     let req = req_builder.body(()).unwrap();
+
+    let conn_info = ConnInfo {
+        local_addr: match env::var("SERVER_NAME") {
+            Ok(name) => name,
+            Err(env::VarError::NotPresent) => panic!("Missing variable SERVER_NAME"),
+            Err(env::VarError::NotUnicode(os_string)) => {
+                panic!("Cannot read {} as server name", os_string.to_string_lossy())
+            }
+        },
+        remote_addr: match env::var("REMOTE_ADDR") {
+            Ok(addr) => match addr.parse() {
+                Ok(addr) => addr,
+                Err(_) => panic!("Cannot parse {} as IP address", addr),
+            },
+            Err(env::VarError::NotPresent) => panic!("Missing variable REMOTE_ADDR"),
+            Err(env::VarError::NotUnicode(os_string)) => panic!(
+                "Cannot read {} as remote IP address",
+                os_string.to_string_lossy()
+            ),
+        },
+        remote_port: match env::var("REMOTE_PORT") {
+            Ok(port) => match port.parse() {
+                Ok(port) => port,
+                Err(_) => panic!("Cannot parse {} as remote port", port),
+            },
+            Err(env::VarError::NotPresent) => panic!("Missing variable REMOTE_PORT"),
+            Err(env::VarError::NotUnicode(os_string)) => {
+                panic!("Cannot read {} as remote port", os_string.to_string_lossy())
+            }
+        },
+        local_port: match env::var("SERVER_PORT") {
+            Ok(port) => match port.parse() {
+                Ok(port) => port,
+                Err(_) => panic!("Cannot parse {} as local port", port),
+            },
+            Err(env::VarError::NotPresent) => panic!("Missing variable SERVER_PORT"),
+            Err(env::VarError::NotUnicode(os_string)) => {
+                panic!("Cannot read {} as local port", os_string.to_string_lossy())
+            }
+        },
+    };
+
+    let service = service_builder(conn_info);
 
     match service.call(req).await {
         Ok(response) => write_response(response).await,

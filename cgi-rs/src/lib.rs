@@ -1,5 +1,6 @@
 pub mod client;
 pub mod server;
+pub mod common;
 
 pub fn add(left: usize, right: usize) -> usize {
     left + right
