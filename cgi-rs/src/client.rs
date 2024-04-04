@@ -4,6 +4,7 @@ use std::pin::pin;
 
 use futures::TryStreamExt;
 use http_body_util::BodyStream;
+use http_body_util::StreamBody;
 use hyper::body::Body;
 use hyper::header;
 use hyper::service::Service;
@@ -11,15 +12,20 @@ use hyper::Request;
 use hyper::Response;
 use hyper::Uri;
 use hyper::Version;
+use tokio::io::stdin;
 use tokio::io::stdout;
 use tokio::io::AsyncWriteExt;
 use tokio::io::BufWriter;
+use tokio::io::Stdin;
+use tokio_util::io::ReaderStream;
 
 use crate::common::ConnInfo;
 
+pub type StdinBody = StreamBody<ReaderStream<Stdin>>;
+
 pub async fn run_cgi<S, F, ResBody>(service_builder: F)
 where
-    S: Service<Request<()>, Response = Response<ResBody>>,
+    S: Service<Request<StdinBody>, Response = Response<ResBody>>,
     F: FnOnce(ConnInfo) -> S,
     ResBody: Body,
     ResBody::Data: AsRef<[u8]>,
@@ -94,7 +100,9 @@ where
         }
     }
 
-    let req = req_builder.body(()).unwrap();
+    let req = req_builder
+        .body(StreamBody::new(ReaderStream::new(stdin())))
+        .unwrap();
 
     let conn_info = ConnInfo {
         local_addr: match env::var("SERVER_NAME") {
