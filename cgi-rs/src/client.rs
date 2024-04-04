@@ -1,4 +1,5 @@
 use std::env;
+use std::io;
 use std::net::IpAddr;
 use std::pin::pin;
 
@@ -140,7 +141,9 @@ where
     let service = service_builder(conn_info);
 
     match service.call(req).await {
-        Ok(response) => write_response(response).await,
+        Ok(response) => write_response(response)
+            .await
+            .expect("Cannot write to stdout"),
         Err(err) => {
             panic!("cannot call service")
         }
@@ -159,7 +162,9 @@ fn get_req_uri() -> String {
         }
 }
 
-async fn write_response<Data: AsRef<[u8]>, B: Body<Data = Data>>(response: Response<B>) {
+async fn write_response<Data: AsRef<[u8]>, B: Body<Data = Data>>(
+    response: Response<B>,
+) -> io::Result<()> {
     let mut out = BufWriter::new(stdout());
     let code = response.status().as_u16();
     let reason = response.status().canonical_reason();
@@ -171,38 +176,26 @@ async fn write_response<Data: AsRef<[u8]>, B: Body<Data = Data>>(response: Respo
         )
         .as_bytes(),
     )
-    .await
-    .expect("Cannot write to stdout");
+    .await?;
     for (k, v) in response.headers() {
-        out.write_all(k.as_str().as_bytes())
-            .await
-            .expect("Cannot write to stdout");
-        out.write_all(": ".as_bytes())
-            .await
-            .expect("Cannot write to stdout");
-        out.write_all(v.as_bytes())
-            .await
-            .expect("Cannot write to stdout");
-        out.write_all("\r\n".as_bytes())
-            .await
-            .expect("Cannot write to stdout");
+        out.write_all(k.as_str().as_bytes()).await?;
+        out.write_all(": ".as_bytes()).await?;
+        out.write_all(v.as_bytes()).await?;
+        out.write_all("\r\n".as_bytes()).await?;
     }
-    out.write_all("\r\n".as_bytes())
-        .await
-        .expect("Cannot write to stdout");
-    out.flush().await.expect("Cannot flush to stdout");
+    out.write_all("\r\n".as_bytes()).await?;
+    out.flush().await?;
 
     let body = pin!(response.into_body());
     let mut stream_body = BodyStream::new(body);
     while let Ok(Some(frame)) = stream_body.try_next().await {
         match frame.into_data() {
             Ok(data) => {
-                out.write_all(data.as_ref())
-                    .await
-                    .expect("Cannot write body to stdout");
-                out.flush().await.expect("Cannot flush to stdout");
+                out.write_all(data.as_ref()).await?;
+                out.flush().await?;
             }
             Err(_) => {}
         }
     }
+    Ok(())
 }
