@@ -1,6 +1,5 @@
 use std::env;
 use std::io;
-use std::net::IpAddr;
 use std::pin::pin;
 
 use futures::TryStreamExt;
