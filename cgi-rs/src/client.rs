@@ -1,11 +1,18 @@
 use std::env;
 use std::io;
 use std::pin::pin;
+use std::pin::Pin;
+use std::task::Context;
+use std::task::Poll;
 
+use bytes::Bytes;
+use futures::stream;
+use futures::StreamExt;
 use futures::TryStreamExt;
 use http_body_util::BodyStream;
 use http_body_util::StreamBody;
 use hyper::body::Body;
+use hyper::body::Frame;
 use hyper::header;
 use hyper::service::Service;
 use hyper::Request;
@@ -21,7 +28,35 @@ use tokio_util::io::ReaderStream;
 
 use crate::common::ConnInfo;
 
-pub type StdinBody = StreamBody<ReaderStream<Stdin>>;
+pub struct StdinBody {
+    body: ReaderStream<Stdin>,
+}
+
+impl StdinBody {
+    fn new() -> StdinBody {
+        StdinBody {
+            body: ReaderStream::new(stdin()),
+        }
+    }
+}
+
+impl Body for StdinBody {
+    type Data = Bytes;
+
+    type Error = std::io::Error;
+
+    fn poll_frame(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
+        match self.body.poll_next_unpin(cx) {
+            Poll::Ready(Some(Ok(bytes))) => Poll::Ready(Some(Ok(Frame::data(bytes)))),
+            Poll::Ready(Some(Err(e))) => Poll::Ready(Some(Err(e))),
+            Poll::Ready(None) => Poll::Ready(None),
+            Poll::Pending => Poll::Pending,
+        }
+    }
+}
 
 pub async fn run_cgi<S, F, ResBody>(service_builder: F)
 where
@@ -100,9 +135,7 @@ where
         }
     }
 
-    let req = req_builder
-        .body(StreamBody::new(ReaderStream::new(stdin())))
-        .unwrap();
+    let req = req_builder.body(StdinBody::new()).unwrap();
 
     let conn_info = ConnInfo {
         local_addr: match env::var("SERVER_NAME") {
