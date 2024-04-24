@@ -88,12 +88,16 @@ where
     }
 
     match env::var("CONTENT_LENGTH") {
-        Ok(length) => match length.parse::<u32>() {
-            Ok(_) => {
-                req_builder = req_builder.header(header::CONTENT_LENGTH, length);
+        Ok(length) => {
+            if !length.trim().is_empty() {
+                match length.parse::<u32>() {
+                    Ok(_) => {
+                        req_builder = req_builder.header(header::CONTENT_LENGTH, length);
+                    }
+                    Err(_) => panic!("Cannot read {} as content-length integer value", length),
+                }
             }
-            Err(_) => panic!("Cannot read {} as content-length integer value", length),
-        },
+        }
         Err(env::VarError::NotPresent) => {}
         Err(env::VarError::NotUnicode(os_string)) => panic!(
             "Cannot read {} as content-length value",
