@@ -19,6 +19,8 @@ use hyper::Request;
 use hyper::Response;
 use hyper::Uri;
 use hyper::Version;
+use log::debug;
+use log::info;
 use tokio::io::stdin;
 use tokio::io::stdout;
 use tokio::io::AsyncWriteExt;
@@ -65,7 +67,7 @@ where
     ResBody: Body,
     ResBody::Data: AsRef<[u8]>,
 {
-    log::info!("Process new GCI request");
+    info!("Process new GCI request");
     let mut req_builder = Request::builder();
 
     req_builder = req_builder.method::<&str>(
@@ -79,6 +81,7 @@ where
 
     match env::var("HTTP_HOST") {
         Ok(host) => {
+            debug!("HTTP_HOST: {}", &host);
             req_builder = req_builder.header(header::HOST, host);
         }
         Err(env::VarError::NotUnicode(os_string)) => {
