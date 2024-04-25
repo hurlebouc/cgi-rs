@@ -93,6 +93,7 @@ where
 
     match env::var("CONTENT_LENGTH") {
         Ok(length) => {
+            debug!("CONTENT_LENGTH: {}", &length);
             if !length.trim().is_empty() {
                 match length.parse::<u32>() {
                     Ok(_) => {
@@ -111,6 +112,7 @@ where
 
     match env::var("CONTENT_TYPE") {
         Ok(ct) => {
+            debug!("CONTENT_TYPE: {}", &ct);
             req_builder = req_builder.header(header::CONTENT_TYPE, ct);
         }
         Err(env::VarError::NotPresent) => {}
@@ -121,16 +123,20 @@ where
     }
 
     for (k, v) in env::vars() {
+        debug!("ENV => {}: {}", &k, &v);
         if k.starts_with("HTTP_") {
             req_builder = req_builder.header(&k[5..].replace("_", "-"), v);
         }
     }
 
     match env::var("REQUEST_URI") {
-        Ok(request_uri) => match Uri::try_from(&request_uri) {
-            Ok(uri) => req_builder = req_builder.uri(uri),
-            Err(_) => panic!("Cannot read REQUEST_URI ({}) as valid URI", &request_uri),
-        },
+        Ok(request_uri) => {
+            debug!("REQUEST_URI: {}", &request_uri);
+            match Uri::try_from(&request_uri) {
+                Ok(uri) => req_builder = req_builder.uri(uri),
+                Err(_) => panic!("Cannot read REQUEST_URI ({}) as valid URI", &request_uri),
+            }
+        }
         Err(env::VarError::NotPresent) => match Uri::try_from(get_req_uri()) {
             Ok(uri) => req_builder = req_builder.uri(uri),
             Err(_) => panic!(
@@ -199,7 +205,7 @@ where
 }
 
 fn get_req_uri() -> String {
-    env::var("SCRIPT_NAME").unwrap_or_default()
+    let res = env::var("SCRIPT_NAME").unwrap_or_default()
         + &env::var("PATH_INFO").unwrap_or_default()
         + &match env::var("QUERY_STRING") {
             Ok(query) => "?".to_string() + &query,
@@ -207,7 +213,9 @@ fn get_req_uri() -> String {
             Err(env::VarError::NotUnicode(os_string)) => {
                 panic!("Cannot read {} as query value", os_string.to_string_lossy())
             }
-        }
+        };
+    debug!("get_req_uri(): {}", &res);
+    return res;
 }
 
 async fn write_response<Data: AsRef<[u8]>, B: Body<Data = Data>>(
@@ -215,7 +223,9 @@ async fn write_response<Data: AsRef<[u8]>, B: Body<Data = Data>>(
 ) -> io::Result<()> {
     let mut out = BufWriter::new(stdout());
     let code = response.status().as_u16();
+    debug!("STATUS: {}", code);
     let reason = response.status().canonical_reason();
+    debug!("REASON: {:?}", &reason);
     out.write_all(
         format!(
             "Status: {} {}\r\n",
@@ -226,6 +236,7 @@ async fn write_response<Data: AsRef<[u8]>, B: Body<Data = Data>>(
     )
     .await?;
     for (k, v) in response.headers() {
+        debug!("RESPONSE => {}: {:?}", &k, &v);
         out.write_all(k.as_str().as_bytes()).await?;
         out.write_all(": ".as_bytes()).await?;
         out.write_all(v.as_bytes()).await?;
