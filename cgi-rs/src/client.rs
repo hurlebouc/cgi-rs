@@ -65,6 +65,7 @@ where
     ResBody: Body,
     ResBody::Data: AsRef<[u8]>,
 {
+    log::info!("Process new GCI request");
     let mut req_builder = Request::builder();
 
     req_builder = req_builder.method::<&str>(
