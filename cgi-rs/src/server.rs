@@ -318,7 +318,10 @@ impl Script {
                                     };
                                 }
                                 Err(err) => {
-                                    eprintln!("Cannot read status {} with error: {}", code_str, err);
+                                    eprintln!(
+                                        "Cannot read status {} with error: {}",
+                                        code_str, err
+                                    );
                                 }
                             }
                         } else {
