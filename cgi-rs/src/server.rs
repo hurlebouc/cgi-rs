@@ -310,12 +310,12 @@ impl Script {
                                             status_code = Some(code);
                                         }
                                         Err(err) => {
-                                            println!("Unknown code {} with error: {}", code, err);
+                                            eprintln!("Unknown code {} with error: {}", code, err);
                                         }
                                     };
                                 }
                                 Err(err) => {
-                                    println!("Cannot read status {} with error: {}", code_str, err);
+                                    eprintln!("Cannot read status {} with error: {}", code_str, err);
                                 }
                             }
                         } else {
@@ -326,10 +326,10 @@ impl Script {
                                     response_builder = response_builder.header(kt, vt);
                                 }
                                 (Ok(_), Err(err)) => {
-                                    println!("Cannot read header value: {}. Error: {}", v, err);
+                                    eprintln!("Cannot read header value: {}. Error: {}", v, err);
                                 }
                                 (Err(err), _) => {
-                                    println!("Cannot read header key: {}. Error: {}", k, err);
+                                    eprintln!("Cannot read header key: {}. Error: {}", k, err);
                                 }
                             }
                         }
@@ -340,7 +340,7 @@ impl Script {
                             has_content_type = true;
                         }
                     } else {
-                        println!("Bad header line: {}", line)
+                        eprintln!("Bad header line: {}", line)
                     }
                 }
                 Err(err) => {
