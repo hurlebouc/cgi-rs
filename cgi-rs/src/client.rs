@@ -81,8 +81,18 @@ where
     let method = read_var("REQUEST_METHOD")?;
     req_builder = req_builder.method::<&str>(&method);
 
-    let _proto = read_var("SERVER_PROTOCOL")?;
-    req_builder = req_builder.version(Version::default());
+    let proto = read_var("SERVER_PROTOCOL")?;
+    let version = match proto.as_str() {
+        "HTTP/1.1" => Version::HTTP_11,
+        "HTTP/1.0" => Version::HTTP_10,
+        "HTTP/2.0" => Version::HTTP_2,
+        "HTTP/3.0" => Version::HTTP_3,
+        other => {
+            debug!("Unknown SERVER_PROTOCOL {}, fallback to HTTP/1.1", other);
+            Version::HTTP_11
+        }
+    };
+    req_builder = req_builder.version(version);
 
     match env::var("HTTP_HOST") {
         Ok(host) => {
@@ -220,7 +230,13 @@ fn read_var(name: &str) -> Result<String, CgiClientError> {
 }
 
 fn read_port(name: &str) -> Result<u16, CgiClientError> {
-    let port = read_var(name)?;
+    let port = match read_var(name) {
+        Ok(port) => port,
+        Err(err) => {
+            debug!("{}: {} (defaulting to 0)", name, err);
+            return Ok(0);
+        }
+    };
     match port.parse::<u16>() {
         Ok(p) => Ok(p),
         Err(_) => Err(CgiClientError::new(format!(
