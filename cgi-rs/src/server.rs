@@ -162,7 +162,7 @@ impl Script {
             .headers()
             .get(CONTENT_LENGTH)
             .and_then(|h| h.to_str().ok())
-            .and_then(|s| s.parse::<u32>().ok())
+            .and_then(|s| s.parse::<u64>().ok())
         {
             env.insert("CONTENT_LENGTH".to_string(), cl.to_string());
         }
@@ -407,11 +407,16 @@ impl Script {
 }
 
 fn get_host_port(value: &str) -> Option<(&str, u16)> {
-    let split: Vec<&str> = value.split(":").collect();
-    if split.len() == 2 {
-        Some((split.get(0)?, split.get(1)?.parse().ok()?))
+    if let Some(rest) = value.strip_prefix('[') {
+        let (host, rest) = rest.split_once(']')?;
+        let port = rest.strip_prefix(':')?;
+        Some((host, port.parse().ok()?))
     } else {
-        None
+        let (host, port) = value.rsplit_once(':')?;
+        if host.contains(':') {
+            return None;
+        }
+        Some((host, port.parse().ok()?))
     }
 }
 
