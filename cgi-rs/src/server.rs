@@ -19,7 +19,7 @@ use hyper::{
 };
 
 use tokio::{
-    io::{AsyncBufReadExt, AsyncWrite, AsyncWriteExt},
+    io::{AsyncBufReadExt, AsyncReadExt, AsyncWrite, AsyncWriteExt},
     process::Command,
 };
 
@@ -39,6 +39,8 @@ macro_rules! trace {
 }
 
 pub type BoxError = Box<dyn std::error::Error + Send + Sync>;
+
+const MAX_CGI_HEADERS_SIZE: u64 = 32 * 1024;
 
 #[derive(Debug, Clone)]
 pub struct Script {
@@ -272,6 +274,7 @@ impl Script {
             });
 
         let mut process_reader = StreamReader::new(process_stream);
+        let mut headers_reader = (&mut process_reader).take(MAX_CGI_HEADERS_SIZE);
 
         let mut response_builder = Response::builder();
 
@@ -282,7 +285,7 @@ impl Script {
 
         loop {
             let mut line = String::new();
-            match process_reader.read_line(&mut line).await {
+            match headers_reader.read_line(&mut line).await {
                 Ok(size) => {
                     if size == 0 {
                         break;
@@ -388,6 +391,7 @@ impl Script {
             }
         }
 
+        drop(headers_reader);
         let remaining_stream = ReaderStream::new(process_reader).map_ok(|bytes| {
             trace!(format!(
                 "remaining bytes: {}",
