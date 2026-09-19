@@ -441,10 +441,6 @@ static OS_SPECIFIC_VARS: &[&str] = &["LD_LIBRARY_PATH"];
 static OS_SPECIFIC_VARS: &[&str] = &["LD_LIBRARY_PATH"];
 #[cfg(target_os = "openbsd")]
 static OS_SPECIFIC_VARS: &[&str] = &["LD_LIBRARY_PATH"];
-#[cfg(target_os = "hpux")]
-static OS_SPECIFIC_VARS: &[&str] = &["LD_LIBRARY_PATH", "SHLIB_PATH"];
-#[cfg(target_os = "irix")]
-static OS_SPECIFIC_VARS: &[&str] = &["LD_LIBRARY_PATH", "LD_LIBRARYN32_PATH", "LD_LIBRARY64_PATH"];
 #[cfg(target_os = "illumos")]
 static OS_SPECIFIC_VARS: &[&str] = &[
     "LD_LIBRARY_PATH",
