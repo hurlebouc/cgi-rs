@@ -246,13 +246,14 @@ impl Script {
             .spawn();
 
         if let Err(err) = child_opt {
+            eprintln!(
+                "Cannot run cgi executable {}: {}",
+                &self.path.to_string_lossy(),
+                err
+            );
             return Ok(get_error_response(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                format!(
-                    "Cannot run cgi executable {} with error: {}",
-                    &self.path.to_string_lossy(),
-                    err
-                ),
+                "Internal server error".to_string(),
             ));
         }
 
@@ -343,18 +344,23 @@ impl Script {
                     }
                 }
                 Err(err) => {
+                    eprintln!("Cannot read cgi headers: {}", err);
                     return Ok(get_error_response(
                         StatusCode::INTERNAL_SERVER_ERROR,
-                        format!("Cannot read header with error: {}", err),
-                    ))
+                        "Internal server error".to_string(),
+                    ));
                 }
             }
         }
 
         if !has_header {
+            eprintln!(
+                "CGI script produced no headers: {}",
+                &self.path.to_string_lossy()
+            );
             return Ok(get_error_response(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                format!("No header read"),
+                "Internal server error".to_string(),
             ));
         }
 
@@ -363,9 +369,13 @@ impl Script {
         }
 
         if !has_content_type && status_code.is_none() {
+            eprintln!(
+                "CGI response is missing the required Content-Type header: {}",
+                &self.path.to_string_lossy()
+            );
             return Ok(get_error_response(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Missing required Content-Type header"),
+                "Internal server error".to_string(),
             ));
         }
 
