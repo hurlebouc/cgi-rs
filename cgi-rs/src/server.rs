@@ -19,7 +19,7 @@ use hyper::{
 };
 
 use tokio::{
-    io::{AsyncBufReadExt, AsyncWrite, AsyncWriteExt},
+    io::{AsyncBufReadExt, AsyncReadExt, AsyncWrite, AsyncWriteExt},
     process::Command,
 };
 
@@ -39,6 +39,8 @@ macro_rules! trace {
 }
 
 pub type BoxError = Box<dyn std::error::Error + Send + Sync>;
+
+const MAX_CGI_HEADERS_SIZE: u64 = 32 * 1024;
 
 #[derive(Debug, Clone)]
 pub struct Script {
@@ -160,7 +162,7 @@ impl Script {
             .headers()
             .get(CONTENT_LENGTH)
             .and_then(|h| h.to_str().ok())
-            .and_then(|s| s.parse::<u32>().ok())
+            .and_then(|s| s.parse::<u64>().ok())
         {
             env.insert("CONTENT_LENGTH".to_string(), cl.to_string());
         }
@@ -246,13 +248,14 @@ impl Script {
             .spawn();
 
         if let Err(err) = child_opt {
+            eprintln!(
+                "Cannot run cgi executable {}: {}",
+                &self.path.to_string_lossy(),
+                err
+            );
             return Ok(get_error_response(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                format!(
-                    "Cannot run cgi executable {} with error: {}",
-                    &self.path.to_string_lossy(),
-                    err
-                ),
+                "Internal server error".to_string(),
             ));
         }
 
@@ -271,6 +274,7 @@ impl Script {
             });
 
         let mut process_reader = StreamReader::new(process_stream);
+        let mut headers_reader = (&mut process_reader).take(MAX_CGI_HEADERS_SIZE);
 
         let mut response_builder = Response::builder();
 
@@ -281,7 +285,7 @@ impl Script {
 
         loop {
             let mut line = String::new();
-            match process_reader.read_line(&mut line).await {
+            match headers_reader.read_line(&mut line).await {
                 Ok(size) => {
                     if size == 0 {
                         break;
@@ -309,12 +313,15 @@ impl Script {
                                             status_code = Some(code);
                                         }
                                         Err(err) => {
-                                            println!("Unknown code {} with error: {}", code, err);
+                                            eprintln!("Unknown code {} with error: {}", code, err);
                                         }
                                     };
                                 }
                                 Err(err) => {
-                                    println!("Cannot read status {} with error: {}", code_str, err);
+                                    eprintln!(
+                                        "Cannot read status {} with error: {}",
+                                        code_str, err
+                                    );
                                 }
                             }
                         } else {
@@ -325,10 +332,10 @@ impl Script {
                                     response_builder = response_builder.header(kt, vt);
                                 }
                                 (Ok(_), Err(err)) => {
-                                    println!("Cannot read header value: {}. Error: {}", v, err);
+                                    eprintln!("Cannot read header value: {}. Error: {}", v, err);
                                 }
                                 (Err(err), _) => {
-                                    println!("Cannot read header key: {}. Error: {}", k, err);
+                                    eprintln!("Cannot read header key: {}. Error: {}", k, err);
                                 }
                             }
                         }
@@ -339,22 +346,27 @@ impl Script {
                             has_content_type = true;
                         }
                     } else {
-                        println!("Bad header line: {}", line)
+                        eprintln!("Bad header line: {}", line)
                     }
                 }
                 Err(err) => {
+                    eprintln!("Cannot read cgi headers: {}", err);
                     return Ok(get_error_response(
                         StatusCode::INTERNAL_SERVER_ERROR,
-                        format!("Cannot read header with error: {}", err),
-                    ))
+                        "Internal server error".to_string(),
+                    ));
                 }
             }
         }
 
         if !has_header {
+            eprintln!(
+                "CGI script produced no headers: {}",
+                &self.path.to_string_lossy()
+            );
             return Ok(get_error_response(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                format!("No header read"),
+                "Internal server error".to_string(),
             ));
         }
 
@@ -363,9 +375,13 @@ impl Script {
         }
 
         if !has_content_type && status_code.is_none() {
+            eprintln!(
+                "CGI response is missing the required Content-Type header: {}",
+                &self.path.to_string_lossy()
+            );
             return Ok(get_error_response(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Missing required Content-Type header"),
+                "Internal server error".to_string(),
             ));
         }
 
@@ -378,6 +394,7 @@ impl Script {
             }
         }
 
+        drop(headers_reader);
         let remaining_stream = ReaderStream::new(process_reader).map_ok(|bytes| {
             trace!(format!(
                 "remaining bytes: {}",
@@ -393,11 +410,16 @@ impl Script {
 }
 
 fn get_host_port(value: &str) -> Option<(&str, u16)> {
-    let split: Vec<&str> = value.split(":").collect();
-    if split.len() == 2 {
-        Some((split.get(0)?, split.get(1)?.parse().ok()?))
+    if let Some(rest) = value.strip_prefix('[') {
+        let (host, rest) = rest.split_once(']')?;
+        let port = rest.strip_prefix(':')?;
+        Some((host, port.parse().ok()?))
     } else {
-        None
+        let (host, port) = value.rsplit_once(':')?;
+        if host.contains(':') {
+            return None;
+        }
+        Some((host, port.parse().ok()?))
     }
 }
 
@@ -422,10 +444,6 @@ static OS_SPECIFIC_VARS: &[&str] = &["LD_LIBRARY_PATH"];
 static OS_SPECIFIC_VARS: &[&str] = &["LD_LIBRARY_PATH"];
 #[cfg(target_os = "openbsd")]
 static OS_SPECIFIC_VARS: &[&str] = &["LD_LIBRARY_PATH"];
-#[cfg(target_os = "hpux")]
-static OS_SPECIFIC_VARS: &[&str] = &["LD_LIBRARY_PATH", "SHLIB_PATH"];
-#[cfg(target_os = "irix")]
-static OS_SPECIFIC_VARS: &[&str] = &["LD_LIBRARY_PATH", "LD_LIBRARYN32_PATH", "LD_LIBRARY64_PATH"];
 #[cfg(target_os = "illumos")]
 static OS_SPECIFIC_VARS: &[&str] = &[
     "LD_LIBRARY_PATH",

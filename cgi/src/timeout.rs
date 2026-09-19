@@ -53,7 +53,7 @@ where
         self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Option<Result<hyper::body::Frame<Self::Data>, Self::Error>>> {
-        let mut this = self.project();
+        let this = self.project();
 
         // Start the `Sleep` if not active.
         if this.sleep.is_none() {
